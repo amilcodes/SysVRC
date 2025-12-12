@@ -16,6 +16,9 @@ SysVRC/
     selection.cpp        # auton selector + LCD
     skills.cpp           # skills run logic
     subsystemFiles/      # intake, lift, clamp, sensors, drivebase, etc.
+    sim/
+      control_loop.cpp   # sim control loop
+      visbot_play.yml    # hil sim playbook for deployment
   static/                # static assets
 
   EZ-Template.a          # prebuilt EZ-Template
