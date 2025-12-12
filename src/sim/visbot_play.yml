@@ -1,0 +1,61 @@
+# deploy/ansible/visbot_sim.yml
+---
+- name: Provision VisBot sim host
+  hosts: visbot_sim
+  become: true
+
+  vars:
+    ros_distro: humble
+    workspace_dir: /opt/visbot_ws
+
+  tasks:
+    - name: Ensure core dependencies are installed
+      apt:
+        name:
+          - build-essential
+          - cmake
+          - git
+          - python3-colcon-common-extensions
+          - python3-rosdep
+        state: present
+        update_cache: yes
+
+    - name: Install ROS {{ ros_distro }} base
+      apt:
+        name:
+          - ros-{{ ros_distro }}-desktop
+          - ros-{{ ros_distro }}-gazebo-ros-pkgs
+        state: present
+
+    - name: Initialize rosdep
+      command: rosdep init
+      args:
+        creates: /etc/ros/rosdep/sources.list.d/20-default.list
+      ignore_errors: yes
+
+    - name: Update rosdep
+      become: false
+      command: rosdep update
+
+    - name: Create workspace directory
+      file:
+        path: "{{ workspace_dir }}/src"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Clone VisBot repo
+      become: false
+      git:
+        repo: "https://github.com/amilcodes/sysvrc.git"
+        dest: "{{ workspace_dir }}/src/sysvrc"
+        version: main
+
+    - name: Build workspace
+      become: false
+      shell: |
+        source /opt/ros/{{ ros_distro }}/setup.bash
+        cd {{ workspace_dir }}
+        colcon build --symlink-install
+      args:
+        executable: /bin/bash
