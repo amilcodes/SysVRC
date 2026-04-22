@@ -1,0 +1,16 @@
+# colcon / cmake
+build/
+install/
+log/
+# python
+__pycache__/
+*.pyc
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+# PROS
+v5/.d/
+v5/compile_commands.json
+v5/temp.log
+v5/temp.errors
