@@ -1,0 +1,35 @@
+# docker compose -f sim/docker/compose.yaml run --rm sim <cmd>
+#
+# The repo is mounted at /ws/src/sysvrc; build/install live in named volumes
+# so incremental colcon builds survive container restarts.
+services:
+  sim:
+    image: sysvrc-sim:jazzy
+    build:
+      context: ../..
+      dockerfile: sim/docker/Dockerfile
+    # SCHED_FIFO + mlockall inside the container:
+    cap_add: [SYS_NICE, IPC_LOCK]
+    ulimits:
+      rtprio: 99
+      memlock: -1
+    volumes:
+      - ../..:/ws/src/sysvrc
+      - ws-build:/ws/build
+      - ws-install:/ws/install
+      - ws-log:/ws/log
+    ports:
+      - "8080:8080"   # dashboard http
+      - "8081:8081"   # dashboard websocket
+    environment:
+      - ROS_DOMAIN_ID=7
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      - GZ_SIM_RESOURCE_PATH=/ws/src/sysvrc/sim/src/visbot_description:/ws/src/sysvrc/sim/src/visbot_gazebo/models
+    working_dir: /ws
+    stdin_open: true
+    tty: true
+
+volumes:
+  ws-build:
+  ws-install:
+  ws-log:
