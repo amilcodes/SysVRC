@@ -1,0 +1,33 @@
+visbot_controller:
+  ros__parameters:
+    rate_hz: 120.0
+    sched_policy: fifo        # fifo | rr | other
+    priority: 80
+    cpu: -1                   # pin the RT thread to a core (>=0) for tighter tails
+    lock_memory: true
+    poll_idle: false          # with cpu>=0: keep that core out of idle states (VMs, containers)
+    spin_before_deadline_us: 0.0  # hybrid sleep: spin for the last N us before each deadline
+    stale_limit_ms: 50.0      # zero the outputs if sensors are older than this
+    mission: skills           # skills | mogo_rush | square
+    loop_mission: false
+    start_delay_s: 2.0
+    start_x_in: 0.0
+    start_y_in: 0.0
+    start_theta_deg: 0.0
+    left_wheel_joint: left_wheel_joint
+    right_wheel_joint: right_wheel_joint
+    track_width_in: 12.5
+    wheel_diameter_in: 3.25
+    wheel_rpm: 450.0
+
+visbot_plant:
+  ros__parameters:
+    physics_hz: 1000.0
+    imu_hz: 200.0             # V5 inertial sensor: 10 ms nominal, 5 ms burst
+    joint_state_hz: 100.0     # V5 smart-motor encoder poll: 10 ms
+    odom_hz: 50.0
+    sensor_latency_ms: 3.0    # smart-port bus + rmw hop
+    motor_tau_s: 0.12
+    imu_noise_std_deg: 0.05
+    imu_drift_deg_per_s: 0.0
+    slip_fraction: 0.0
