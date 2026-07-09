@@ -1,0 +1,163 @@
+<?xml version="1.0"?>
+<!--
+  SysVRC drivebase for Gazebo Harmonic.
+
+  Geometry mirrors core/include/visbot/constants.hpp (RobotParams):
+    wheel diameter 3.25 in, track width 12.5 in, 15 x 15 in chassis, 7.5 kg.
+  Six drive motors are collapsed to two driven wheels plus frictionless casters:
+  the kinematics are what the controller cares about.
+
+  Sensor cadence is set to what the V5 brain actually sees so the control loop
+  is exercised against hardware-like timing: IMU 200 Hz (10 ms nominal, 5 ms
+  burst), wheel encoders via joint states at 100 Hz.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="visbot">
+  <xacro:property name="inch" value="0.0254"/>
+  <xacro:property name="wheel_r" value="${3.25 * inch / 2}"/>
+  <xacro:property name="wheel_w" value="${1.0 * inch}"/>
+  <xacro:property name="track" value="${12.5 * inch}"/>
+  <xacro:property name="body_l" value="${15 * inch}"/>
+  <xacro:property name="body_w" value="${15 * inch}"/>
+  <xacro:property name="body_h" value="${4 * inch}"/>
+  <xacro:property name="clearance" value="${0.75 * inch}"/>
+  <xacro:property name="mass" value="7.5"/>
+  <xacro:arg name="imu_hz" default="200"/>
+  <xacro:arg name="joint_hz" default="100"/>
+
+  <material name="chassis"><color rgba="0.16 0.18 0.22 1"/></material>
+  <material name="wheel"><color rgba="0.05 0.05 0.05 1"/></material>
+  <material name="accent"><color rgba="0.30 0.79 0.94 1"/></material>
+
+  <!-- ===== base ===== -->
+  <link name="base_link">
+    <inertial>
+      <mass value="${mass}"/>
+      <origin xyz="0 0 0"/>
+      <inertia ixx="${mass/12*(body_w*body_w+body_h*body_h)}" iyy="${mass/12*(body_l*body_l+body_h*body_h)}"
+               izz="${mass/12*(body_l*body_l+body_w*body_w)}" ixy="0" ixz="0" iyz="0"/>
+    </inertial>
+    <visual>
+      <geometry><box size="${body_l} ${body_w} ${body_h}"/></geometry>
+      <material name="chassis"/>
+    </visual>
+    <!-- heading marker -->
+    <visual>
+      <origin xyz="${body_l*0.35} 0 ${body_h/2+0.005}"/>
+      <geometry><box size="${body_l*0.25} ${body_w*0.15} 0.01"/></geometry>
+      <material name="accent"/>
+    </visual>
+    <collision>
+      <geometry><box size="${body_l} ${body_w} ${body_h}"/></geometry>
+    </collision>
+  </link>
+
+  <!-- ===== drive wheels ===== -->
+  <xacro:macro name="wheel" params="side y">
+    <link name="${side}_wheel">
+      <inertial>
+        <mass value="0.15"/>
+        <inertia ixx="${0.15/12*(3*wheel_r*wheel_r+wheel_w*wheel_w)}" iyy="${0.15/2*wheel_r*wheel_r}"
+                 izz="${0.15/12*(3*wheel_r*wheel_r+wheel_w*wheel_w)}" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+      <visual>
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_r}" length="${wheel_w}"/></geometry>
+        <material name="wheel"/>
+      </visual>
+      <collision>
+        <origin rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_r}" length="${wheel_w}"/></geometry>
+      </collision>
+    </link>
+    <joint name="${side}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="${side}_wheel"/>
+      <origin xyz="0 ${y} ${-(body_h/2 + clearance - wheel_r)}"/>
+      <axis xyz="0 1 0"/>
+      <dynamics damping="0.01" friction="0.0"/>
+    </joint>
+    <gazebo reference="${side}_wheel">
+      <mu1>1.2</mu1><mu2>1.0</mu2>
+      <kp>1e6</kp><kd>10</kd>
+    </gazebo>
+  </xacro:macro>
+  <xacro:wheel side="left" y="${track/2}"/>
+  <xacro:wheel side="right" y="${-track/2}"/>
+
+  <!-- ===== casters (frictionless spheres) ===== -->
+  <xacro:macro name="caster" params="name x">
+    <link name="${name}_caster">
+      <inertial><mass value="0.05"/><inertia ixx="1e-5" iyy="1e-5" izz="1e-5" ixy="0" ixz="0" iyz="0"/></inertial>
+      <visual><geometry><sphere radius="${clearance}"/></geometry><material name="wheel"/></visual>
+      <collision><geometry><sphere radius="${clearance}"/></geometry></collision>
+    </link>
+    <joint name="${name}_caster_joint" type="fixed">
+      <parent link="base_link"/><child link="${name}_caster"/>
+      <origin xyz="${x} 0 ${-(body_h/2)}"/>
+    </joint>
+    <gazebo reference="${name}_caster"><mu1>0.0</mu1><mu2>0.0</mu2></gazebo>
+  </xacro:macro>
+  <xacro:caster name="front" x="${body_l/2 - clearance}"/>
+  <xacro:caster name="rear" x="${-(body_l/2 - clearance)}"/>
+
+  <!-- ===== IMU ===== -->
+  <link name="imu_link">
+    <inertial><mass value="0.01"/><inertia ixx="1e-6" iyy="1e-6" izz="1e-6" ixy="0" ixz="0" iyz="0"/></inertial>
+  </link>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/><child link="imu_link"/>
+    <origin xyz="0 0 ${body_h/2}"/>
+  </joint>
+  <gazebo reference="imu_link">
+    <sensor name="imu" type="imu">
+      <always_on>true</always_on>
+      <update_rate>$(arg imu_hz)</update_rate>
+      <topic>/visbot/imu</topic>
+      <gz_frame_id>imu_link</gz_frame_id>
+      <imu>
+        <angular_velocity>
+          <z><noise type="gaussian"><mean>0</mean><stddev>0.002</stddev><bias_mean>0.0002</bias_mean></noise></z>
+        </angular_velocity>
+      </imu>
+    </sensor>
+  </gazebo>
+
+  <!-- ===== Gazebo systems ===== -->
+  <gazebo>
+    <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
+      <wheel_separation>${track}</wheel_separation>
+      <wheel_radius>${wheel_r}</wheel_radius>
+      <topic>/visbot/cmd_vel</topic>
+      <!-- the plugin's wheel-integrated odometry; ground truth comes from OdometryPublisher below -->
+      <odom_topic>/visbot/wheel_odom</odom_topic>
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <frame_id>field</frame_id>
+      <child_frame_id>base_link</child_frame_id>
+      <!-- 450 rpm on 3.25 in wheels = 1.95 m/s; 0.12 s motor time constant -->
+      <max_linear_velocity>1.95</max_linear_velocity>
+      <min_linear_velocity>-1.95</min_linear_velocity>
+      <max_angular_velocity>12.3</max_angular_velocity>
+      <min_angular_velocity>-12.3</min_angular_velocity>
+      <max_linear_acceleration>16</max_linear_acceleration>
+      <min_linear_acceleration>-16</min_linear_acceleration>
+      <max_angular_acceleration>100</max_angular_acceleration>
+      <min_angular_acceleration>-100</min_angular_acceleration>
+    </plugin>
+    <!-- true model pose in the world frame, published as Odometry -->
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>field</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odom_topic>/visbot/odom</odom_topic>
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <dimensions>2</dimensions>
+    </plugin>
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <topic>/visbot/joint_states</topic>
+      <joint_name>left_wheel_joint</joint_name>
+      <joint_name>right_wheel_joint</joint_name>
+      <update_rate>$(arg joint_hz)</update_rate>
+    </plugin>
+  </gazebo>
+</robot>
