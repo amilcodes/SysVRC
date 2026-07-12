@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<!--
+  A 12 ft x 12 ft VRC field: tiled floor, perimeter wall, four mobile goals.
+  Physics steps at 1 kHz with real-time factor 1 so a 120 Hz controller sees
+  ~8 physics updates per tick, the same ratio the V5's 10 ms scheduler has
+  against the real world.
+-->
+<sdf version="1.9">
+  <world name="vrc_field">
+    <physics name="1ms" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+
+    <gravity>0 0 -9.81</gravity>
+    <scene>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.05 0.06 0.08 1</background>
+      <grid>false</grid>
+    </scene>
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <direction>-0.3 0.2 -0.9</direction>
+    </light>
+
+    <!-- 12 ft square floor: 3.6576 m -->
+    <model name="field_floor">
+      <static>true</static>
+      <link name="floor">
+        <collision name="c">
+          <geometry><box><size>3.6576 3.6576 0.02</size></box></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+        </collision>
+        <visual name="v">
+          <geometry><box><size>3.6576 3.6576 0.02</size></box></geometry>
+          <material><ambient>0.35 0.36 0.38 1</ambient><diffuse>0.35 0.36 0.38 1</diffuse></material>
+        </visual>
+        <!-- tile seams every 2 ft -->
+        <visual name="seams_x1"><pose>-0.6096 0 0.011 0 0 0</pose><geometry><box><size>0.006 3.6576 0.001</size></box></geometry><material><diffuse>0.2 0.2 0.22 1</diffuse></material></visual>
+        <visual name="seams_x2"><pose>0.6096 0 0.011 0 0 0</pose><geometry><box><size>0.006 3.6576 0.001</size></box></geometry><material><diffuse>0.2 0.2 0.22 1</diffuse></material></visual>
+        <visual name="seams_x3"><pose>-1.2192 0 0.011 0 0 0</pose><geometry><box><size>0.006 3.6576 0.001</size></box></geometry><material><diffuse>0.2 0.2 0.22 1</diffuse></material></visual>
+        <visual name="seams_x4"><pose>1.2192 0 0.011 0 0 0</pose><geometry><box><size>0.006 3.6576 0.001</size></box></geometry><material><diffuse>0.2 0.2 0.22 1</diffuse></material></visual>
+        <visual name="seams_x5"><pose>0 0 0.011 0 0 0</pose><geometry><box><size>0.006 3.6576 0.001</size></box></geometry><material><diffuse>0.2 0.2 0.22 1</diffuse></material></visual>
+        <visual name="seams_y1"><pose>0 -0.6096 0.011 0 0 0</pose><geometry><box><size>3.6576 0.006 0.001</size></box></geometry><material><diffuse>0.2 0.2 0.22 1</diffuse></material></visual>
+        <visual name="seams_y2"><pose>0 0.6096 0.011 0 0 0</pose><geometry><box><size>3.6576 0.006 0.001</size></box></geometry><material><diffuse>0.2 0.2 0.22 1</diffuse></material></visual>
+        <visual name="seams_y3"><pose>0 -1.2192 0.011 0 0 0</pose><geometry><box><size>3.6576 0.006 0.001</size></box></geometry><material><diffuse>0.2 0.2 0.22 1</diffuse></material></visual>
+        <visual name="seams_y4"><pose>0 1.2192 0.011 0 0 0</pose><geometry><box><size>3.6576 0.006 0.001</size></box></geometry><material><diffuse>0.2 0.2 0.22 1</diffuse></material></visual>
+        <visual name="seams_y5"><pose>0 0 0.011 0 0 0</pose><geometry><box><size>3.6576 0.006 0.001</size></box></geometry><material><diffuse>0.2 0.2 0.22 1</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- perimeter wall, 0.3 m tall -->
+    <model name="field_perimeter">
+      <static>true</static>
+      <link name="walls">
+        <collision name="n"><pose>0 1.8388 0.15 0 0 0</pose><geometry><box><size>3.7 0.02 0.3</size></box></geometry></collision>
+        <visual name="nv"><pose>0 1.8388 0.15 0 0 0</pose><geometry><box><size>3.7 0.02 0.3</size></box></geometry><material><diffuse>0.55 0.55 0.58 0.6</diffuse></material></visual>
+        <collision name="s"><pose>0 -1.8388 0.15 0 0 0</pose><geometry><box><size>3.7 0.02 0.3</size></box></geometry></collision>
+        <visual name="sv"><pose>0 -1.8388 0.15 0 0 0</pose><geometry><box><size>3.7 0.02 0.3</size></box></geometry><material><diffuse>0.55 0.55 0.58 0.6</diffuse></material></visual>
+        <collision name="e"><pose>1.8388 0 0.15 0 0 0</pose><geometry><box><size>0.02 3.7 0.3</size></box></geometry></collision>
+        <visual name="ev"><pose>1.8388 0 0.15 0 0 0</pose><geometry><box><size>0.02 3.7 0.3</size></box></geometry><material><diffuse>0.55 0.55 0.58 0.6</diffuse></material></visual>
+        <collision name="w"><pose>-1.8388 0 0.15 0 0 0</pose><geometry><box><size>0.02 3.7 0.3</size></box></geometry></collision>
+        <visual name="wv"><pose>-1.8388 0 0.15 0 0 0</pose><geometry><box><size>0.02 3.7 0.3</size></box></geometry><material><diffuse>0.55 0.55 0.58 0.6</diffuse></material></visual>
+      </link>
+    </model>
+
+    <!-- mobile goals (hexagonal-ish: cylinder stand-ins), 1.2 kg, out of the demo route -->
+    <model name="mogo_1"><pose>1.2192 1.2192 0.06 0 0 0</pose><link name="l"><inertial><mass>1.2</mass><inertia><ixx>0.004</ixx><iyy>0.004</iyy><izz>0.006</izz></inertia></inertial><collision name="c"><geometry><cylinder><radius>0.11</radius><length>0.12</length></cylinder></geometry></collision><visual name="v"><geometry><cylinder><radius>0.11</radius><length>0.12</length></cylinder></geometry><material><diffuse>0.95 0.75 0.1 1</diffuse></material></visual></link></model>
+    <model name="mogo_2"><pose>-1.2192 1.2192 0.06 0 0 0</pose><link name="l"><inertial><mass>1.2</mass><inertia><ixx>0.004</ixx><iyy>0.004</iyy><izz>0.006</izz></inertia></inertial><collision name="c"><geometry><cylinder><radius>0.11</radius><length>0.12</length></cylinder></geometry></collision><visual name="v"><geometry><cylinder><radius>0.11</radius><length>0.12</length></cylinder></geometry><material><diffuse>0.95 0.75 0.1 1</diffuse></material></visual></link></model>
+    <model name="mogo_3"><pose>1.2192 -1.2192 0.06 0 0 0</pose><link name="l"><inertial><mass>1.2</mass><inertia><ixx>0.004</ixx><iyy>0.004</iyy><izz>0.006</izz></inertia></inertial><collision name="c"><geometry><cylinder><radius>0.11</radius><length>0.12</length></cylinder></geometry></collision><visual name="v"><geometry><cylinder><radius>0.11</radius><length>0.12</length></cylinder></geometry><material><diffuse>0.95 0.75 0.1 1</diffuse></material></visual></link></model>
+    <model name="mogo_4"><pose>-1.2192 -1.2192 0.06 0 0 0</pose><link name="l"><inertial><mass>1.2</mass><inertia><ixx>0.004</ixx><iyy>0.004</iyy><izz>0.006</izz></inertia></inertial><collision name="c"><geometry><cylinder><radius>0.11</radius><length>0.12</length></cylinder></geometry></collision><visual name="v"><geometry><cylinder><radius>0.11</radius><length>0.12</length></cylinder></geometry><material><diffuse>0.95 0.75 0.1 1</diffuse></material></visual></link></model>
+  </world>
+</sdf>

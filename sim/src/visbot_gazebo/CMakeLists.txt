@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.16)
+project(visbot_gazebo)
+find_package(ament_cmake REQUIRED)
+install(DIRECTORY worlds config launch DESTINATION share/${PROJECT_NAME})
+ament_package()
