@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>visbot_dash</name>
+  <version>1.0.0</version>
+  <description>Browser mission-control dashboard: field view, mission progress and live RT loop latency histograms.</description>
+  <maintainer email="amil@amilcodes.dev">Amil Agrawal</maintainer>
+  <license>MIT</license>
+  <depend>rclpy</depend>
+  <depend>visbot_msgs</depend>
+  <depend>nav_msgs</depend>
+  <exec_depend>python3-websockets</exec_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>
