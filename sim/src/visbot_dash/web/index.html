@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SysVRC · sim testbed</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #121722; --line: #1f2736; --text: #d8dee9; --muted: #7c8799;
+    --accent: #4cc9f0; --truth: #f4a261; --ok: #57d38c; --warn: #f2c14e; --bad: #ef476f;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; margin: 0; letter-spacing: .04em; }
+  header h1 span { color: var(--muted); font-weight: 400; }
+  .chip { font-family: var(--mono); font-size: 11px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .chip.on { color: var(--ok); border-color: #2a4d3a; }
+  .chip.off { color: var(--bad); border-color: #4d2a35; }
+  .chip.fifo { color: var(--accent); border-color: #234c5a; }
+  main { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(360px, 480px); gap: 14px; padding: 14px 18px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .panel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  #field { width: 100%; aspect-ratio: 1; display: block; border-radius: 6px; }
+  .col { display: flex; flex-direction: column; gap: 14px; }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .tile { background: #0e121b; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .tile .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .tile .v { font-family: var(--mono); font-size: 18px; margin-top: 2px; }
+  .tile .u { font-size: 10px; color: var(--muted); margin-left: 3px; }
+  .tile.good .v { color: var(--ok); } .tile.warn .v { color: var(--warn); } .tile.bad .v { color: var(--bad); }
+  canvas.chart { width: 100%; height: 130px; display: block; }
+  .legend { display: flex; gap: 12px; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 3px; margin-right: 5px; vertical-align: middle; }
+  ol.steps { list-style: none; margin: 0; padding: 0; font-family: var(--mono); font-size: 12px; }
+  ol.steps li { display: flex; justify-content: space-between; padding: 3px 6px; border-radius: 4px; color: var(--muted); }
+  ol.steps li.done { color: #5d7a6b; }
+  ol.steps li.active { background: #16202e; color: var(--text); }
+  ol.steps li .x { color: var(--muted); }
+  .bars { display: grid; grid-template-columns: 60px 1fr 60px; gap: 6px; align-items: center; font-family: var(--mono); font-size: 12px; }
+  .bar { height: 10px; background: #0e121b; border: 1px solid var(--line); border-radius: 3px; position: relative; overflow: hidden; }
+  .bar i { position: absolute; top: 0; bottom: 0; background: var(--accent); }
+  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; font-family: var(--mono); font-size: 12px; }
+  .kv span:nth-child(odd) { color: var(--muted); }
+  footer { color: var(--muted); font-size: 11px; padding: 0 18px 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SysVRC <span>· ROS 2 + Gazebo sim testbed</span></h1>
+  <span id="conn" class="chip off">disconnected</span>
+  <span id="sched" class="chip">—</span>
+  <span id="rate" class="chip">—</span>
+  <span id="t" class="chip" style="margin-left:auto">t = 0.0 s</span>
+  <button id="snap" class="chip" style="cursor:pointer;background:none" title="render the page to PNG and save it on the sim host">snapshot</button>
+</header>
+<main>
+  <section class="panel">
+    <h2>Field · odometry estimate vs ground truth</h2>
+    <canvas id="field"></canvas>
+    <div class="legend"><span><i style="background:var(--accent)"></i>controller odometry</span><span><i style="background:var(--truth)"></i>backend ground truth</span><span id="poseErr"></span></div>
+  </section>
+  <div class="col">
+    <section class="panel">
+      <h2>120 Hz control loop · wake latency</h2>
+      <div class="tiles">
+        <div class="tile" id="t_p50"><div class="k">p50</div><div class="v">—<span class="u">µs</span></div></div>
+        <div class="tile" id="t_p99"><div class="k">p99</div><div class="v">—<span class="u">µs</span></div></div>
+        <div class="tile" id="t_max"><div class="k">max</div><div class="v">—<span class="u">µs</span></div></div>
+        <div class="tile" id="t_jit"><div class="k">jitter rms</div><div class="v">—<span class="u">µs</span></div></div>
+        <div class="tile" id="t_exec"><div class="k">exec p99</div><div class="v">—<span class="u">µs</span></div></div>
+        <div class="tile" id="t_over"><div class="k">overruns</div><div class="v">—</div></div>
+        <div class="tile" id="t_miss"><div class="k">missed</div><div class="v">—</div></div>
+        <div class="tile" id="t_stale"><div class="k">stale ticks</div><div class="v">—</div></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Wake-latency histogram <span id="histNote" style="text-transform:none;letter-spacing:0"></span></h2>
+      <canvas id="hist" class="chart"></canvas>
+    </section>
+    <section class="panel">
+      <h2>p99 / max over time</h2>
+      <canvas id="series" class="chart"></canvas>
+      <div class="legend"><span><i style="background:var(--accent)"></i>p99</span><span><i style="background:var(--bad)"></i>max</span><span><i style="background:#3a4356"></i>period budget</span></div>
+    </section>
+    <section class="panel">
+      <h2>Mission <span id="missionName" style="text-transform:none;letter-spacing:0"></span></h2>
+      <ol class="steps" id="steps"></ol>
+    </section>
+    <section class="panel">
+      <h2>Sensors &amp; command</h2>
+      <div class="bars">
+        <span>left</span><div class="bar"><i id="bl"></i></div><span id="vl">0</span>
+        <span>right</span><div class="bar"><i id="br"></i></div><span id="vr">0</span>
+      </div>
+      <div class="kv" style="margin-top:8px">
+        <span>imu heading</span><span id="imu">—</span>
+        <span>enc L / R</span><span id="enc">—</span>
+        <span>sensor age</span><span id="age">—</span>
+        <span>twist v / ω</span><span id="twist">—</span>
+      </div>
+    </section>
+  </div>
+</main>
+<footer>Wake latency = actual − scheduled wake time of the RT thread (CLOCK_MONOTONIC). Period budget 8333 µs. Stats accumulate from loop start.</footer>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const dpr = window.devicePixelRatio || 1;
+  const FIELD_IN = 144, TILE = 24, ROBOT = 15;
+  const trailEst = [], trailTruth = [];
+  const series = [];            // {t, p99, max}
+  const exits = [];             // exit reason per completed step
+  let last = null, lastStepCount = 0;
+
+  function fit(c) {
+    const r = c.getBoundingClientRect();
+    if (c.width !== Math.round(r.width * dpr) || c.height !== Math.round(r.height * dpr)) {
+      c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
+    }
+    const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); return [g, r.width, r.height];
+  }
+
+  function drawField(f) {
+    const c = $('field'); const [g, W, H] = fit(c);
+    const s = W / FIELD_IN;
+    const toPx = (x, y) => [W / 2 + x * s, H / 2 - y * s];
+    g.fillStyle = '#0e121b'; g.fillRect(0, 0, W, H);
+    g.strokeStyle = '#1b2230'; g.lineWidth = 1;
+    for (let i = 0; i <= 6; i++) {
+      g.beginPath(); g.moveTo(i * TILE * s, 0); g.lineTo(i * TILE * s, H); g.stroke();
+      g.beginPath(); g.moveTo(0, i * TILE * s); g.lineTo(W, i * TILE * s); g.stroke();
+    }
+    g.strokeStyle = '#2a3446'; g.lineWidth = 2; g.strokeRect(1, 1, W - 2, H - 2);
+    // alliance stripes
+    g.fillStyle = 'rgba(239,71,111,.08)'; g.fillRect(0, 0, W, 6 * s);
+    g.fillStyle = 'rgba(76,201,240,.08)'; g.fillRect(0, H - 6 * s, W, 6 * s);
+    const trail = (pts, color, dash) => {
+      if (pts.length < 2) return;
+      g.strokeStyle = color; g.lineWidth = 2; g.setLineDash(dash);
+      g.beginPath(); pts.forEach((p, i) => { const [x, y] = toPx(p.x, p.y); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
+      g.setLineDash([]);
+    };
+    trail(trailTruth, '#f4a261', [4, 4]);
+    trail(trailEst, '#4cc9f0', []);
+    const robot = (p, color, fill) => {
+      const [x, y] = toPx(p.x, p.y); const th = p.theta * Math.PI / 180;
+      g.save(); g.translate(x, y); g.rotate(th);
+      g.fillStyle = fill; g.strokeStyle = color; g.lineWidth = 2;
+      g.fillRect(-ROBOT * s / 2, -ROBOT * s / 2, ROBOT * s, ROBOT * s);
+      g.strokeRect(-ROBOT * s / 2, -ROBOT * s / 2, ROBOT * s, ROBOT * s);
+      g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -ROBOT * s * 0.7); g.stroke();
+      g.restore();
+    };
+    if (f.truth) robot(f.truth, '#f4a261', 'rgba(244,162,97,.10)');
+    if (f.state) robot(f.state, '#4cc9f0', 'rgba(76,201,240,.18)');
+    if (f.state && f.truth) {
+      const e = Math.hypot(f.state.x - f.truth.x, f.state.y - f.truth.y);
+      $('poseErr').textContent = `odom error ${e.toFixed(2)} in`;
+    }
+  }
+
+  let lastHist = null;
+  function drawHist(st) {
+    const c = $('hist'); const [g, W, H] = fit(c);
+    g.clearRect(0, 0, W, H);
+    if (st && st.wake_hist) lastHist = st.wake_hist; else if (st && lastHist) st = { ...st, wake_hist: lastHist };
+    if (!st || !st.wake_hist) return;
+    const h = st.wake_hist, b = st.bucket_us;
+    let lastNZ = 0; for (let i = 0; i < h.length; i++) if (h[i]) lastNZ = i;
+    const n = Math.max(lastNZ + 2, 16);
+    const maxC = Math.max(1, ...h.slice(0, n));
+    const bw = W / n;
+    const p99 = st.wake_p99 / b, budget = st.period_us / b;
+    for (let i = 0; i < n; i++) {
+      const v = h[i] ? Math.log10(h[i] + 1) / Math.log10(maxC + 1) : 0;
+      g.fillStyle = i * b >= st.period_us ? '#ef476f' : (i >= p99 ? '#f2c14e' : '#4cc9f0');
+      g.fillRect(i * bw + 0.5, H - 16 - v * (H - 22), Math.max(1, bw - 1), v * (H - 22));
+    }
+    g.fillStyle = '#7c8799'; g.font = '10px ui-monospace, monospace'; g.textAlign = 'left';
+    g.fillText('0', 2, H - 4); g.textAlign = 'right'; g.fillText(`${(n * b / 1000).toFixed(2)} ms`, W - 2, H - 4);
+    g.textAlign = 'center'; g.fillText('log count', W / 2, H - 4);
+    if (budget < n) { g.strokeStyle = '#ef476f'; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(budget * bw, 0); g.lineTo(budget * bw, H - 16); g.stroke(); g.setLineDash([]); }
+    $('histNote').textContent = `· ${b} µs buckets · ${st.ticks} ticks · ${st.window_s.toFixed(0)} s`;
+  }
+
+  function drawSeries() {
+    const c = $('series'); const [g, W, H] = fit(c);
+    g.clearRect(0, 0, W, H);
+    if (series.length < 2) return;
+    const t0 = series[0].t, t1 = series[series.length - 1].t;
+    const budget = last && last.stats ? last.stats.period_us : 8333;
+    const lo = Math.log10(10), hi = Math.log10(Math.max(budget * 1.5, ...series.map(p => p.max)));
+    const X = t => 44 + (t - t0) / Math.max(1e-6, t1 - t0) * (W - 48), Y = v => H - 14 - (Math.log10(Math.max(10, v)) - lo) / (hi - lo) * (H - 20);
+    g.strokeStyle = '#3a4356'; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(44, Y(budget)); g.lineTo(W - 4, Y(budget)); g.stroke(); g.setLineDash([]);
+    const line = (k, col) => { g.strokeStyle = col; g.lineWidth = 1.5; g.beginPath(); series.forEach((p, i) => i ? g.lineTo(X(p.t), Y(p[k])) : g.moveTo(X(p.t), Y(p[k]))); g.stroke(); };
+    line('max', '#ef476f'); line('p99', '#4cc9f0');
+    g.fillStyle = '#7c8799'; g.font = '10px ui-monospace, monospace'; g.textAlign = 'right';
+    g.fillText(`${(Math.pow(10, hi) / 1000).toFixed(1)}ms`, 42, 10); g.fillText('10µs', 42, H - 12); if (Y(budget) > 22) g.fillText(`${(budget / 1000).toFixed(1)}ms`, 42, Y(budget) + 3);
+  }
+
+  function tile(id, v, unit, cls) {
+    const el = $(id); el.className = 'tile ' + (cls || '');
+    el.querySelector('.v').innerHTML = `${v}${unit ? `<span class="u">${unit}</span>` : ''}`;
+  }
+  const grade = (v, warn, bad) => v > bad ? 'bad' : v > warn ? 'warn' : 'good';
+
+  function renderStats(st) {
+    if (!st) return;
+    const P = st.period_us;
+    tile('t_p50', st.wake_p50.toFixed(0), 'µs', grade(st.wake_p50, P * 0.1, P * 0.25));
+    tile('t_p99', st.wake_p99.toFixed(0), 'µs', grade(st.wake_p99, P * 0.25, P * 0.5));
+    tile('t_max', st.wake_max.toFixed(0), 'µs', grade(st.wake_max, P * 0.5, P));
+    tile('t_jit', st.jitter_rms.toFixed(0), 'µs', grade(st.jitter_rms, P * 0.1, P * 0.25));
+    tile('t_exec', st.exec_p99.toFixed(0), 'µs', grade(st.exec_p99, P * 0.25, P * 0.5));
+    tile('t_over', st.overruns, '', st.overruns ? 'bad' : 'good');
+    tile('t_miss', st.missed, '', st.missed ? 'bad' : 'good');
+    tile('t_stale', st.stale, '', st.stale ? 'warn' : 'good');
+    $('sched').textContent = `${st.policy} · prio ${st.prio} · cpu ${st.cpu} · ${st.mlock ? 'mlock' : 'no mlock'}`;
+    $('sched').className = 'chip ' + (st.policy === 'SCHED_FIFO' || st.policy === 'SCHED_RR' ? 'fifo' : '');
+    $('rate').textContent = `${st.rate.toFixed(0)} Hz · ${P.toFixed(0)} µs`;
+  }
+
+  function renderState(s) {
+    if (!s) return;
+    $('missionName').textContent = `· ${s.mission} · step ${Math.min(s.step + 1, s.steps)}/${s.steps}${s.done ? ' · done' : ''}`;
+    const ol = $('steps');
+    if (ol.children.length !== s.steps) {
+      ol.innerHTML = ''; exits.length = 0;
+      for (let i = 0; i < s.steps; i++) { const li = document.createElement('li'); li.innerHTML = `<span>#${i + 1} <span class="n"></span></span><span class="x"></span>`; ol.appendChild(li); }
+    }
+    if (s.step > 0 && s.step <= s.steps) exits[s.step - 1] = s.last_exit;
+    if (s.done) exits[s.steps - 1] = s.last_exit;
+    [...ol.children].forEach((li, i) => {
+      li.className = i < s.step || s.done ? 'done' : i === s.step ? 'active' : '';
+      li.querySelector('.n').textContent = s.labels && s.labels[i] ? s.labels[i] : '';
+      if (i === s.step && !s.done) li.querySelector('.x').textContent = `err ${s.error.toFixed(2)} · ${(s.elapsed_ms / 1000).toFixed(2)} s`;
+      else li.querySelector('.x').textContent = exits[i] || '';
+    });
+    const bar = (id, v) => { const el = $(id); const pct = Math.abs(v) / 127 * 50; el.style.left = (v < 0 ? 50 - pct : 50) + '%'; el.style.width = pct + '%'; el.style.background = v < 0 ? '#f4a261' : '#4cc9f0'; };
+    bar('bl', s.cmd_l); bar('br', s.cmd_r);
+    $('vl').textContent = s.cmd_l.toFixed(0); $('vr').textContent = s.cmd_r.toFixed(0);
+    $('imu').textContent = `${s.imu.toFixed(1)}°`;
+    $('enc').textContent = `${s.enc_l.toFixed(0)}° / ${s.enc_r.toFixed(0)}°`;
+    $('age').textContent = s.age_us < 0 ? 'no data' : `${(s.age_us / 1000).toFixed(1)} ms`;
+    $('twist').textContent = `${s.v.toFixed(2)} m/s / ${s.w.toFixed(2)} rad/s`;
+  }
+
+  function onFrame(f) {
+    last = f;
+    $('t').textContent = `t = ${f.t.toFixed(1)} s`;
+    if (f.state) { const p = trailEst[trailEst.length - 1]; if (!p || Math.hypot(p.x - f.state.x, p.y - f.state.y) > 0.25) trailEst.push({ x: f.state.x, y: f.state.y }); }
+    if (f.truth) { const p = trailTruth[trailTruth.length - 1]; if (!p || Math.hypot(p.x - f.truth.x, p.y - f.truth.y) > 0.25) trailTruth.push({ x: f.truth.x, y: f.truth.y }); }
+    if (f.state && f.state.step === 0 && f.state.elapsed_ms < 100 && lastStepCount !== f.state.steps) { trailEst.length = 0; trailTruth.length = 0; lastStepCount = f.state.steps; }
+    if (f.stats && (!series.length || f.t - series[series.length - 1].t > 0.45)) { series.push({ t: f.t, p99: f.stats.wake_p99, max: f.stats.wake_max }); if (series.length > 240) series.shift(); }
+    if (trailEst.length > 3000) trailEst.shift(); if (trailTruth.length > 3000) trailTruth.shift();
+    renderStats(f.stats); renderState(f.state);
+    drawField(f); drawHist(f.stats); drawSeries();
+  }
+
+  function connect() {
+    const url = `ws://${location.hostname || 'localhost'}:8081`;
+    const ws = new WebSocket(url);
+    ws.onopen = () => { $('conn').textContent = 'live'; $('conn').className = 'chip on'; };
+    ws.onclose = () => { $('conn').textContent = 'disconnected'; $('conn').className = 'chip off'; setTimeout(connect, 1000); };
+    ws.onmessage = e => onFrame(JSON.parse(e.data));
+  }
+  // Offline replay: index.html?replay=run.jsonl
+  const rp = new URLSearchParams(location.search).get('replay');
+  if (rp) {
+    fetch(rp).then(r => r.text()).then(txt => {
+      const frames = txt.trim().split('\n').map(JSON.parse); let i = 0;
+      $('conn').textContent = 'replay'; $('conn').className = 'chip fifo';
+      const step = () => { if (i < frames.length) { onFrame(frames[i++]); setTimeout(step, 33); } };
+      step();
+    });
+  } else connect();
+  window.addEventListener('resize', () => last && onFrame(last));
+  // Snapshot: lazy-load html2canvas (only on click, so the page has no external deps otherwise).
+  window.saveSnapshot = async (name = 'dashboard.png') => {
+    if (!window.html2canvas) await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+    const c = await html2canvas(document.body, { backgroundColor: '#0b0e14', scale: 2 });
+    const r = await fetch('/snapshot', { method: 'POST', headers: { 'X-Snapshot-Name': name }, body: c.toDataURL('image/png') });
+    return await r.text();
+  };
+  $('snap').onclick = () => saveSnapshot().then(p => { $('snap').textContent = 'saved'; setTimeout(() => $('snap').textContent = 'snapshot', 1500); });
+})();
+</script>
+</body>
+</html>
