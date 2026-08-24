@@ -1,0 +1,8 @@
+{
+  "policy": "SCHED_FIFO", "priority": 80, "cpu": 6, "mlock": true, "stress_threads": 0, "poll_idle": false, "spin_us": 3000,
+  "rate_hz": 120.0, "period_us": 8333.3, "seconds": 10.0, "ticks": 1202,
+  "wake_latency_us": {"mean": 285.5, "p50": 40.0, "p99": 1240.0, "p999": 5320.0, "max": 6134.1},
+  "exec_us": {"mean": 8.3, "p50": 4.0, "p99": 18.0, "max": 4140.5},
+  "period_jitter_rms_us": 773.9, "overruns": 0, "missed_deadlines": 0,
+  "deadline_budget_us": 8333.3, "worst_case_response_us": 10274.5
+}

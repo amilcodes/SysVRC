@@ -1,0 +1,8 @@
+{
+  "policy": "SCHED_OTHER", "priority": 0, "cpu": 5, "mlock": true, "stress_threads": 8, "poll_idle": false, "spin_us": 0,
+  "rate_hz": 120.0, "period_us": 8333.3, "seconds": 10.0, "ticks": 1192,
+  "wake_latency_us": {"mean": 2726.7, "p50": 2720.0, "p99": 6060.0, "p999": 10240.0, "max": 32783.0},
+  "exec_us": {"mean": 31.5, "p50": 2.0, "p99": 22.0, "max": 34503.2},
+  "period_jitter_rms_us": 2309.7, "overruns": 1, "missed_deadlines": 8,
+  "deadline_budget_us": 8333.3, "worst_case_response_us": 67286.1
+}
