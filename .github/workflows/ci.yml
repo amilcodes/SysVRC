@@ -1,0 +1,47 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  core:
+    name: core (host, no ROS)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S core -B build/core -DCMAKE_BUILD_TYPE=Release && cmake --build build/core -j
+      - run: ctest --test-dir build/core --output-on-failure
+
+  sim:
+    name: sim (ROS 2 Jazzy + Gazebo Harmonic)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: sim/docker/Dockerfile
+          tags: sysvrc-sim:jazzy
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: colcon build + test
+        run: |
+          docker run --rm -v "$PWD":/ws/src/sysvrc -w /ws sysvrc-sim:jazzy bash -lc '
+            colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release --event-handlers console_cohesion+ &&
+            colcon test --event-handlers console_cohesion+ &&
+            colcon test-result --verbose'
+      - name: end-to-end (plant backend, RT loop, mission completes)
+        run: |
+          docker run --rm --cap-add=SYS_NICE --cap-add=IPC_LOCK --ulimit rtprio=99 --ulimit memlock=-1 \
+            -v "$PWD":/ws/src/sysvrc -w /ws sysvrc-sim:jazzy bash -lc '
+            colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release > /dev/null &&
+            sim/tools/smoke_test.sh 22 skills fifo 1 true' 2>&1 | tee smoke.log
+      - name: gazebo headless spawns + bridges
+        run: |
+          docker run --rm --cap-add=SYS_NICE --ulimit rtprio=99 --ulimit memlock=-1 \
+            -v "$PWD":/ws/src/sysvrc -w /ws sysvrc-sim:jazzy bash -lc '
+            colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release > /dev/null &&
+            sim/tools/gazebo_smoke.sh 25'
