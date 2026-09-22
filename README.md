@@ -48,12 +48,14 @@ docker compose -f sim/docker/compose.yaml run --rm --service-ports sim \
 ```
 
 Then open **http://localhost:8080** — the dashboard shows the field with the
-controller's odometry against the backend's ground truth, the mission step
-list with exit reasons, and the RT loop's live wake-latency histogram.
+controller's odometry against the backend's ground truth, the instruction list
+with per-motion exit reasons, timestamped mechanism calls, and the RT loop's
+live wake-latency histogram.
 
-Missions: `skills` (11-step skills-style loop), `mogo_rush` (opening of the
-match auton), `square`. Scheduling: `sched:=fifo|rr|other`, `cpu:=N`,
-`poll_idle:=true|false`, `spin_us:=N`.
+Missions: `mogo_rush` (the real `worldsMogoRush()` from `autons.cpp`, 58
+instructions), `skills` (exercises every motion type), `square` (odometry
+drift), `chain` (motion chaining). Scheduling: `sched:=fifo|rr|other`,
+`cpu:=N`, `poll_idle:=true|false`, `spin_us:=N`.
 
 ## The control loop
 
@@ -90,7 +92,11 @@ docker compose -f sim/docker/compose.yaml run --rm sim python3 sim/tools/plot_la
 ## Shared controllers (`core/`)
 
 Header-only C++17 with no dependencies, compiled by both the PROS build
-(`v5/common.mk` adds it to the include path) and the ROS 2 packages:
+(`v5/common.mk` adds it to the include path) and the ROS 2 packages. This is a
+*port* of EZ-Template v3.2.2, quirks included — see
+**[docs/fidelity.md](docs/fidelity.md)** for what was verified against EZ's
+source, the six quirks deliberately preserved (and the tests that pin them),
+and the known divergences.
 
 | header | what | from |
 |---|---|---|
@@ -98,7 +104,8 @@ Header-only C++17 with no dependencies, compiled by both the PROS build
 | `pid.hpp` | PID with `start_i`, sign-flip reset, small/big/velocity exit conditions, rate-invariant kD | EZ-Template semantics |
 | `constants.hpp` | drive/heading/turn/odom gains, exit conditions, slew | `default_constants()` in `v5/src/autons.cpp` |
 | `odometry.hpp` | encoder + IMU arc dead-reckoning | ez::Drive odom (no tracking wheels) |
-| `motion.hpp` | `driveDistance` / `turnTo` / `driveToPoint` / `wait` mission steps | `pid_drive_set` / `pid_turn_set` / `pid_odom_set` |
+| `motion.hpp` | the full motion engine: drive / turn / swing / odom-point, `wait_until`, mid-motion `speed_max`, motion chaining | `pid_drive_set` / `pid_turn_set` / `pid_swing_set` / `pid_odom_set` / `pid_wait*` |
+| `missions.hpp` | routines, including a line-for-line transcription of `worldsMogoRush()` | `autons.cpp` |
 | `plant.hpp` | kinematic diff-drive with motor lag, encoder quantisation, IMU noise | — |
 
 Tests run natively, no ROS needed:
@@ -107,10 +114,21 @@ Tests run natively, no ROS needed:
 cmake -S core -B build/core && cmake --build build/core && ctest --test-dir build/core --output-on-failure
 ```
 
-They include closed-loop checks (drive 24 in converges within 1 in, turns take
-the shortest path, the full skills loop completes and returns to origin with
-< 3 in error) and a check that the EZ gains give identical derivative action
-at 100 Hz and 120 Hz.
+50 tests: closed-loop convergence (drive 24 in within 1 in, shortest-path
+turns, swings, odom points, the skills loop returning to origin), the EZ
+quirks above, rate invariance of kD and kI between 100 Hz and 120 Hz, and the
+real `worldsMogoRush` routine running to completion inside the field.
+
+A routine reads the way it does in `autons.cpp`, because the instruction model
+mirrors EZ's set-a-motion-then-block structure:
+
+```cpp
+Instr::driveSet(36, 127),          // chassis.pid_drive_set(36, 127)
+Instr::waitUntil(6),               // chassis.pid_wait_until(12 - 6)
+Instr::act(ActionId::DoinkerRight),// rightDoinker.toggle()
+Instr::speedMax(70),               // chassis.pid_speed_max_set(70)
+Instr::wait(),                     // chassis.pid_wait()
+```
 
 ## Sim packages (`sim/src/`)
 
