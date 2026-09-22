@@ -29,9 +29,16 @@ IN_PER_M = 39.3700787402
 
 
 def yaw_to_heading_deg(qz, qw):
+    """ROS yaw (CCW from +x) -> field compass heading in (-180, 180].
+
+    Mirrors visbot::yawToHeading / wrapDeg, including putting exactly 180 at
+    +180 rather than -180.
+    """
     yaw = math.atan2(2.0 * qw * qz, 1.0 - 2.0 * qz * qz)
-    h = 90.0 - math.degrees(yaw)
-    return (h + 180.0) % 360.0 - 180.0
+    h = (90.0 - math.degrees(yaw) + 180.0) % 360.0
+    if h <= 0.0:
+        h += 360.0
+    return h - 180.0
 
 
 class DashNode(Node):
@@ -55,6 +62,8 @@ class DashNode(Node):
             "x": m.x, "y": m.y, "theta": m.theta_deg, "mission": m.mission, "labels": list(m.step_labels),
             "step": m.step_index, "steps": m.step_count, "step_name": m.step_name,
             "error": m.step_error, "elapsed_ms": m.step_elapsed_ms, "last_exit": m.last_exit,
+            "mode": m.mode, "interfered": m.interfered,
+            "action": m.last_action, "action_at_ms": m.last_action_at_ms,
             "done": m.done, "imu": m.imu_heading_deg, "enc_l": m.enc_left_deg, "enc_r": m.enc_right_deg,
             "age_us": m.sensor_age_us, "cmd_l": m.cmd_left, "cmd_r": m.cmd_right,
             "v": m.cmd_linear_mps, "w": m.cmd_angular_rps,
@@ -108,8 +117,13 @@ class DashHandler(http.server.SimpleHTTPRequestHandler):
             data = base64.b64decode(data.split(b",", 1)[1])
         name = self.headers.get("X-Snapshot-Name", "dashboard.png")
         path = os.path.join(self.snapshot_dir, os.path.basename(name))
-        with open(path, "wb") as f:
-            f.write(data)
+        try:
+            os.makedirs(self.snapshot_dir, exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(data)
+        except OSError as e:
+            self.send_error(500, f"could not write {path}: {e}")
+            return
         self.send_response(200)
         self.end_headers()
         self.wfile.write(path.encode())

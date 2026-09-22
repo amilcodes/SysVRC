@@ -19,7 +19,8 @@
   .chip.on { color: var(--ok); border-color: #2a4d3a; }
   .chip.off { color: var(--bad); border-color: #4d2a35; }
   .chip.fifo { color: var(--accent); border-color: #234c5a; }
-  main { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(360px, 480px); gap: 14px; padding: 14px 18px; }
+  main { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(360px, 480px);
+         gap: 14px; padding: 14px 18px; align-items: start; }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
   .panel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
@@ -34,7 +35,7 @@
   canvas.chart { width: 100%; height: 130px; display: block; }
   .legend { display: flex; gap: 12px; font-size: 11px; color: var(--muted); margin-top: 6px; }
   .legend i { display: inline-block; width: 10px; height: 3px; margin-right: 5px; vertical-align: middle; }
-  ol.steps { list-style: none; margin: 0; padding: 0; font-family: var(--mono); font-size: 12px; }
+  ol.steps { list-style: none; margin: 0; padding: 0; font-family: var(--mono); font-size: 12px; max-height: 260px; overflow-y: auto; }
   ol.steps li { display: flex; justify-content: space-between; padding: 3px 6px; border-radius: 4px; color: var(--muted); }
   ol.steps li.done { color: #5d7a6b; }
   ol.steps li.active { background: #16202e; color: var(--text); }
@@ -53,6 +54,8 @@
   <span id="conn" class="chip off">disconnected</span>
   <span id="sched" class="chip">—</span>
   <span id="rate" class="chip">—</span>
+  <span id="mode" class="chip">—</span>
+  <span id="intf" class="chip off" hidden>interfered</span>
   <span id="t" class="chip" style="margin-left:auto">t = 0.0 s</span>
   <button id="snap" class="chip" style="cursor:pointer;background:none" title="render the page to PNG and save it on the sim host">snapshot</button>
 </header>
@@ -90,6 +93,10 @@
       <ol class="steps" id="steps"></ol>
     </section>
     <section class="panel">
+      <h2>Mechanism calls <span id="actNote" style="text-transform:none;letter-spacing:0"></span></h2>
+      <ol class="steps" id="actions"><li style="color:var(--muted)">none yet</li></ol>
+    </section>
+    <section class="panel">
       <h2>Sensors &amp; command</h2>
       <div class="bars">
         <span>left</span><div class="bar"><i id="bl"></i></div><span id="vl">0</span>
@@ -104,7 +111,7 @@
     </section>
   </div>
 </main>
-<footer>Wake latency = actual − scheduled wake time of the RT thread (CLOCK_MONOTONIC). Period budget 8333 µs. Stats accumulate from loop start.</footer>
+<footer>Wake latency = actual − scheduled wake time of the RT thread (CLOCK_MONOTONIC). Period budget 8333 µs. Stats are reset when the mission arms, so start-up transients are excluded.</footer>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
@@ -112,7 +119,9 @@
   const FIELD_IN = 144, TILE = 24, ROBOT = 15;
   const trailEst = [], trailTruth = [];
   const series = [];            // {t, p99, max}
-  const exits = [];             // exit reason per completed step
+  const exits = [];             // exit reason per completed instruction
+  const actions = [];           // {t, name} mechanism calls, in order
+  let lastActionAt = -1;
   let last = null, lastStepCount = 0;
 
   function fit(c) {
@@ -225,7 +234,25 @@
 
   function renderState(s) {
     if (!s) return;
-    $('missionName').textContent = `· ${s.mission} · step ${Math.min(s.step + 1, s.steps)}/${s.steps}${s.done ? ' · done' : ''}`;
+    $('missionName').textContent = `· ${s.mission} · ${Math.min(s.step + 1, s.steps)}/${s.steps}${s.done ? ' · done' : ''}`;
+    if (s.mode) { $('mode').textContent = s.mode; $('mode').className = 'chip' + (s.mode !== 'disabled' ? ' fifo' : ''); }
+    $('intf').hidden = !s.interfered;
+
+    // Mechanism calls are stamped by the controller, so a repeat of the same
+    // action still registers as a new event.
+    if (s.action && s.action !== 'none' && s.action_at_ms > lastActionAt) {
+      lastActionAt = s.action_at_ms;
+      actions.push({ t: s.action_at_ms / 1000, name: s.action });
+      if (actions.length > 40) actions.shift();
+      const ol = $('actions');
+      ol.innerHTML = '';
+      actions.slice().reverse().forEach(a => {
+        const li = document.createElement('li');
+        li.innerHTML = `<span>${a.name}</span><span class="x">${a.t.toFixed(2)} s</span>`;
+        ol.appendChild(li);
+      });
+      $('actNote').textContent = `· ${actions.length}`;
+    }
     const ol = $('steps');
     if (ol.children.length !== s.steps) {
       ol.innerHTML = ''; exits.length = 0;
@@ -234,7 +261,10 @@
     if (s.step > 0 && s.step <= s.steps) exits[s.step - 1] = s.last_exit;
     if (s.done) exits[s.steps - 1] = s.last_exit;
     [...ol.children].forEach((li, i) => {
+      const wasActive = li.className === 'active';
       li.className = i < s.step || s.done ? 'done' : i === s.step ? 'active' : '';
+      if (li.className === 'active' && !wasActive && ol.scrollHeight > ol.clientHeight)
+        li.scrollIntoView({ block: 'nearest' });
       li.querySelector('.n').textContent = s.labels && s.labels[i] ? s.labels[i] : '';
       if (i === s.step && !s.done) li.querySelector('.x').textContent = `err ${s.error.toFixed(2)} · ${(s.elapsed_ms / 1000).toFixed(2)} s`;
       else li.querySelector('.x').textContent = exits[i] || '';
@@ -253,7 +283,11 @@
     $('t').textContent = `t = ${f.t.toFixed(1)} s`;
     if (f.state) { const p = trailEst[trailEst.length - 1]; if (!p || Math.hypot(p.x - f.state.x, p.y - f.state.y) > 0.25) trailEst.push({ x: f.state.x, y: f.state.y }); }
     if (f.truth) { const p = trailTruth[trailTruth.length - 1]; if (!p || Math.hypot(p.x - f.truth.x, p.y - f.truth.y) > 0.25) trailTruth.push({ x: f.truth.x, y: f.truth.y }); }
-    if (f.state && f.state.step === 0 && f.state.elapsed_ms < 100 && lastStepCount !== f.state.steps) { trailEst.length = 0; trailTruth.length = 0; lastStepCount = f.state.steps; }
+    if (f.state && f.state.step === 0 && f.state.elapsed_ms < 100 && lastStepCount !== f.state.steps) {
+      trailEst.length = 0; trailTruth.length = 0; actions.length = 0; lastActionAt = -1;
+      $('actions').innerHTML = '<li style="color:var(--muted)">none yet</li>';
+      lastStepCount = f.state.steps;
+    }
     if (f.stats && (!series.length || f.t - series[series.length - 1].t > 0.45)) { series.push({ t: f.t, p99: f.stats.wake_p99, max: f.stats.wake_max }); if (series.length > 240) series.shift(); }
     if (trailEst.length > 3000) trailEst.shift(); if (trailTruth.length > 3000) trailTruth.shift();
     renderStats(f.stats); renderState(f.state);

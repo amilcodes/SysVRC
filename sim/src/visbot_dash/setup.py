@@ -11,6 +11,8 @@ setup(
         ("share/" + package_name + "/web", ["web/index.html"]),
     ],
     install_requires=["setuptools"],
+    tests_require=["pytest"],
+    test_suite="test",
     zip_safe=True,
     maintainer="Amil Agrawal",
     maintainer_email="amil@amilcodes.dev",
