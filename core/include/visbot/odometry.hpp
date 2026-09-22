@@ -32,7 +32,8 @@ public:
     void reset(const Pose& pose, const EncoderReading& enc, double imuHeadingDeg) {
         pose_ = pose;
         prevEnc_ = enc;
-        imuOffset_ = wrapDeg(pose.theta - imuHeadingDeg);
+        imuContinuous_ = imuHeadingDeg;
+        imuOffset_ = pose.theta - imuHeadingDeg;
         initialised_ = true;
     }
 
@@ -45,8 +46,11 @@ public:
         const double dr = (enc.rightDeg - prevEnc_.rightDeg) * k;
         prevEnc_ = enc;
 
-        const double newHeading = wrapDeg(imuHeadingDeg + imuOffset_);
-        const double dTheta = deg2rad(wrapDeg(newHeading - pose_.theta));
+        // The IMU may arrive wrapped (Gazebo quaternion) or continuous (V5
+        // get_rotation); fold it into a continuous series either way.
+        imuContinuous_ = unwrapInto(imuContinuous_, wrapDeg(imuHeadingDeg));
+        const double newHeading = imuContinuous_ + imuOffset_;
+        const double dTheta = deg2rad(newHeading - pose_.theta);
         const double d = 0.5 * (dl + dr);
 
         // Arc integration: chord length of an arc with distance d and turn dTheta.
@@ -73,7 +77,7 @@ private:
     RobotParams params_;
     Pose pose_{};
     EncoderReading prevEnc_{};
-    double imuOffset_ = 0.0;
+    double imuOffset_ = 0.0, imuContinuous_ = 0.0;
     double distanceTravelled_ = 0.0;
     bool initialised_ = false;
 };

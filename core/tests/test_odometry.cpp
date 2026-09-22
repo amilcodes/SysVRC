@@ -3,6 +3,34 @@
 #include "visbot/plant.hpp"
 using namespace visbot;
 
+TEST(wrap_deg_range_is_half_open_at_the_top) {
+    // (-180, 180]: a robot facing the far wall reads +180, not -180.
+    EXPECT_NEAR(wrapDeg(180.0), 180.0, 1e-12);
+    EXPECT_NEAR(wrapDeg(-180.0), 180.0, 1e-12);
+    EXPECT_NEAR(wrapDeg(540.0), 180.0, 1e-12);
+    EXPECT_NEAR(wrapDeg(0.0), 0.0, 1e-12);
+    EXPECT_NEAR(wrapDeg(360.0), 0.0, 1e-12);
+    EXPECT_NEAR(wrapDeg(90.0), 90.0, 1e-12);
+    EXPECT_NEAR(wrapDeg(-90.0), -90.0, 1e-12);
+    EXPECT_NEAR(wrapDeg(181.0), -179.0, 1e-12);
+    EXPECT_NEAR(wrapDeg(-181.0), 179.0, 1e-12);
+    for (double a = -720.0; a <= 720.0; a += 3.0) {
+        const double w = wrapDeg(a);
+        EXPECT_TRUE(w > -180.0 && w <= 180.0);
+    }
+}
+
+TEST(unwrap_into_follows_a_continuous_series) {
+    // A wrapped source (Gazebo quaternion) must fold into continuous heading.
+    double cont = 170.0;
+    cont = unwrapInto(cont, -175.0);   // crossed 180 going up
+    EXPECT_NEAR(cont, 185.0, 1e-9);
+    cont = unwrapInto(cont, -150.0);
+    EXPECT_NEAR(cont, 210.0, 1e-9);
+    cont = unwrapInto(cont, 170.0);    // came back down
+    EXPECT_NEAR(cont, 170.0, 1e-9);
+}
+
 TEST(straight_line) {
     RobotParams rp;
     Odometry od(rp);
