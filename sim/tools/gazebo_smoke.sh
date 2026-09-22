@@ -4,6 +4,10 @@
 #   sim/tools/gazebo_smoke.sh [seconds] [mission]
 set -eo pipefail
 SECS="${1:-25}"; MISSION="${2:-square}"
+# Max tolerated odometry-vs-truth drift, inches. This is a property of the
+# routine, not of the code: encoder+IMU odometry cannot see wheel slip, so an
+# all-out rush drifts far more than a gentle square. See docs/fidelity.md.
+DRIFT_MAX="${3:-6.0}"
 source /opt/ros/jazzy/setup.bash; source /ws/install/setup.bash
 set -u
 export GZ_SIM_RESOURCE_PATH="${GZ_SIM_RESOURCE_PATH:-}"
@@ -36,9 +40,9 @@ imu_ok=$(timeout 4 ros2 topic hz /visbot/imu 2>/dev/null | grep -c "average rate
 fail=0
 [ "$imu_ok" != "0" ] || { echo "FAIL: no IMU data bridged from Gazebo"; fail=1; }
 [ "$done_flag" = "true" ] || { echo "FAIL: mission not done"; fail=1; }
-python3 - "$STATE" "$ODOM" <<'PY' || fail=1
+python3 - "$STATE" "$ODOM" "$DRIFT_MAX" <<'PY' || fail=1
 import re, sys, math
-st, od = sys.argv[1], sys.argv[2]
+st, od, drift_max = sys.argv[1], sys.argv[2], float(sys.argv[3])
 g = lambda k, s: float(re.search(rf"^{k}: (\S+)", s, re.M).group(1))
 try:
     ex, ey = g("x", st), g("y", st)
@@ -47,7 +51,7 @@ try:
 except Exception as e:
     print("FAIL: could not parse", e); sys.exit(1)
 err = math.hypot(ex - tx, ey - ty)
-print(f"odometry vs gazebo truth: {err:.2f} in")
-sys.exit(0 if err < 6.0 else 1)
+print(f"odometry vs gazebo truth: {err:.2f} in (limit {drift_max:.1f})")
+sys.exit(0 if err < drift_max else 1)
 PY
 [ $fail -eq 0 ] && echo "GAZEBO SMOKE OK" || { echo "--- launch log tail ---"; tail -40 /tmp/gz_launch.log; exit 1; }

@@ -5,11 +5,11 @@
 #
 #   sim/tools/smoke_test.sh [seconds] [mission] [sched]
 set -eo pipefail
-SECS="${1:-22}"; MISSION="${2:-skills}"; SCHED="${3:-fifo}"; CPU="${4:-3}"; POLL="${5:-true}"
+SECS="${1:-22}"; MISSION="${2:-skills}"; SCHED="${3:-fifo}"; CPU="${4:-3}"; POLL="${5:-true}"; SPIN="${6:-500}"
 source /opt/ros/jazzy/setup.bash; source /ws/install/setup.bash
 set -u
 
-setsid ros2 launch visbot_control plant.launch.py mission:="$MISSION" sched:="$SCHED" cpu:="$CPU" poll_idle:="$POLL" dash:=false > /tmp/smoke_launch.log 2>&1 &
+setsid ros2 launch visbot_control plant.launch.py mission:="$MISSION" sched:="$SCHED" cpu:="$CPU" poll_idle:="$POLL" spin_us:="$SPIN" dash:=false > /tmp/smoke_launch.log 2>&1 &
 LPID=$!
 teardown() {
   kill -INT -- -"$LPID" 2>/dev/null || true
