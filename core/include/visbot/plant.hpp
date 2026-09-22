@@ -55,7 +55,7 @@ public:
         if (std::fabs(dTheta) > 1e-9) chord = 2.0 * (d / dTheta) * std::sin(dTheta / 2.0);
         truth_.x += chord * std::sin(mid);
         truth_.y += chord * std::cos(mid);
-        truth_.theta = wrapDeg(truth_.theta + rad2deg(dTheta));
+        truth_.theta += rad2deg(dTheta);   // continuous, like the V5 inertial
 
         encL_ += dl / rp_.inchesPerWheelDegree();
         encR_ += dr / rp_.inchesPerWheelDegree();
@@ -71,7 +71,7 @@ public:
         SensorSnapshot s;
         s.enc.leftDeg = quantise(encL_);
         s.enc.rightDeg = quantise(encR_);
-        s.imuHeadingDeg = wrapDeg(truth_.theta + drift_ + gaussian() * pp_.imuNoiseStdDeg);
+        s.imuHeadingDeg = truth_.theta + drift_ + gaussian() * pp_.imuNoiseStdDeg;
         return s;
     }
 
