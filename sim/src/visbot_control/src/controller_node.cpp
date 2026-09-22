@@ -60,21 +60,34 @@ double yawFromQuat(double x, double y, double z, double w) {
     return std::atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z));
 }
 
-std::string stepLabel(const visbot::Step& st) {
-    char buf[64];
-    switch (st.kind) {
-        case visbot::Step::Kind::DriveDistance: std::snprintf(buf, sizeof buf, "drive %+.0f in @%.0f", st.a, st.speed); break;
-        case visbot::Step::Kind::TurnTo:        std::snprintf(buf, sizeof buf, "turn to %.0f deg @%.0f", st.a, st.speed); break;
-        case visbot::Step::Kind::DriveToPoint:  std::snprintf(buf, sizeof buf, "odom %s(%.0f, %.0f) @%.0f", st.reverse ? "rev " : "", st.a, st.b, st.speed); break;
-        case visbot::Step::Kind::Wait:          std::snprintf(buf, sizeof buf, "wait %.0f ms", st.a); break;
+/// Render one instruction the way it reads in autons.cpp.
+std::string instrLabel(const visbot::Instr& in) {
+    char buf[72];
+    using Op = visbot::Instr::Op;
+    switch (in.op) {
+        case Op::DriveSet:
+            std::snprintf(buf, sizeof buf, "drive %+.0f in @%.0f%s", in.a, in.speed, in.slew ? "" : " noslew");
+            break;
+        case Op::TurnSet:
+            std::snprintf(buf, sizeof buf, "turn to %.0f deg @%.0f", in.a, in.speed);
+            break;
+        case Op::SwingSet:
+            std::snprintf(buf, sizeof buf, "swing %s to %.0f deg @%.0f",
+                          in.side == visbot::SwingSide::Left ? "L" : "R", in.a, in.speed);
+            break;
+        case Op::OdomSet:
+            std::snprintf(buf, sizeof buf, "odom %s(%.0f, %.0f) @%.0f",
+                          in.dir == visbot::DriveDirection::Reverse ? "rev " : "", in.a, in.b, in.speed);
+            break;
+        case Op::Wait:               std::snprintf(buf, sizeof buf, "wait"); break;
+        case Op::WaitUntil:          std::snprintf(buf, sizeof buf, "wait_until %+.1f", in.a); break;
+        case Op::WaitQuickChain:     std::snprintf(buf, sizeof buf, "wait_quick_chain"); break;
+        case Op::Delay:              std::snprintf(buf, sizeof buf, "delay %.0f ms", in.a); break;
+        case Op::SpeedMax:           std::snprintf(buf, sizeof buf, "speed_max %.0f", in.speed); break;
+        case Op::DriveChainConstant: std::snprintf(buf, sizeof buf, "chain_const %.0f in", in.a); break;
+        case Op::Action:             std::snprintf(buf, sizeof buf, "> %s", visbot::toString(in.action)); break;
     }
     return buf;
-}
-
-visbot::Mission missionByName(const std::string& n) {
-    if (n == "mogo_rush") return visbot::missions::mogoRush();
-    if (n == "square") return visbot::missions::square();
-    return visbot::missions::skillsLoop();
 }
 
 }  // namespace
@@ -100,6 +113,9 @@ public:
         startPose_.x = declare_parameter("start_x_in", 0.0);
         startPose_.y = declare_parameter("start_y_in", 0.0);
         startPose_.theta = declare_parameter("start_theta_deg", 0.0);
+        allianceBlue_ = declare_parameter("alliance_blue", true);
+        // Only override the mission's own start pose if the caller asked.
+        startPoseOverridden_ = startPose_.x != 0.0 || startPose_.y != 0.0 || startPose_.theta != 0.0;
         const double startDelay = declare_parameter("start_delay_s", 2.0);
         loopMission_ = declare_parameter("loop_mission", false);
 
@@ -165,18 +181,31 @@ private:
             startTimer_ = create_wall_timer(500ms, [this] { startTimer_->cancel(); armMission(); });
             return;
         }
+        const visbot::MissionDef def = visbot::missions::byName(missionName_, allianceBlue_);
         PendingArm a;
-        a.pose = startPose_;
-        a.mission = missionByName(missionName_);
+        // captured before `a` is moved into the mailbox below
+
+        // A routine's start pose is part of the routine (odom_xyt_set at the
+        // top of every auton), so take it from the mission unless the launch
+        // file overrode it.
+        a.pose = startPoseOverridden_ ? startPose_ : def.start;
+        a.mission = def.mission;
         stepLabels_.clear();
-        for (const auto& st : a.mission) stepLabels_.push_back(stepLabel(st));
+        stepLabels_.reserve(a.mission.size());
+        for (const auto& in : a.mission) stepLabels_.push_back(instrLabel(in));
+        const size_t instrCount = a.mission.size();
+        const visbot::Pose armedPose = a.pose;
         {
             std::lock_guard<std::mutex> lk(armMutex_);
             pendingArm_ = std::move(a);
         }
         armRequested_.store(true, std::memory_order_release);
-        RCLCPP_INFO(get_logger(), "mission '%s' armed (%zu steps) from (%.1f, %.1f, %.0f deg)",
-                    missionName_.c_str(), missionByName(missionName_).size(), startPose_.x, startPose_.y, startPose_.theta);
+        // Measure the loop over the run, not over process start-up: the first
+        // ticks include lazy allocation and first-touch page faults that say
+        // nothing about steady-state scheduling.
+        loop_->resetStats();
+        RCLCPP_INFO(get_logger(), "mission '%s' armed (%zu instructions) from (%.1f, %.1f, %.0f deg)",
+                    def.name.c_str(), instrCount, armedPose.x, armedPose.y, armedPose.theta);
     }
 
     // ======================= RT thread: the 120 Hz tick =======================
@@ -210,7 +239,8 @@ private:
             ++state_.staleTicks;        // hold zero output; the controller keeps its state
         } else {
             wc = ctrl_->tick(s, c.dtSeconds);
-            if (loopMission_ && ctrl_->status().done) ctrl_->setMission(missionByName(missionName_));
+            if (loopMission_ && ctrl_->status().done)
+                ctrl_->setMission(visbot::missions::byName(missionName_, allianceBlue_).mission);
         }
 
         // V5 units -> body twist (REP-103) for the diff-drive plugin.
@@ -294,14 +324,20 @@ private:
         visbot_msgs::msg::ControlState m;
         m.header.stamp = now();
         m.header.frame_id = "field";
-        m.x = ss.pose.x; m.y = ss.pose.y; m.theta_deg = ss.pose.theta;
+        m.x = ss.pose.x;
+        m.y = ss.pose.y;
+        m.theta_deg = ss.pose.wrappedTheta();
         m.mission = missionName_;
         m.step_labels = stepLabels_;
-        m.step_index = ss.status.stepIndex;
+        m.step_index = ss.status.pc;
         m.step_count = int32_t(ctrl_->mission().size());
-        m.step_name = ss.status.stepName;
+        m.step_name = ss.status.instr;
         m.step_error = ss.status.error;
-        m.step_elapsed_ms = ss.status.stepElapsedMs;
+        m.step_elapsed_ms = ss.status.instrElapsedMs;
+        m.mode = visbot::toString(ss.status.mode);
+        m.interfered = ss.status.interfered;
+        m.last_action = visbot::toString(ss.status.lastAction);
+        m.last_action_at_ms = ss.status.lastActionAtMs;
         m.last_exit = visbot::toString(ss.status.lastExit);
         m.done = ss.status.done;
         m.imu_heading_deg = ss.sensors.imuHeadingDeg;
@@ -316,7 +352,7 @@ private:
         ps.header = m.header;
         ps.pose.position.x = visbot::in2m(ss.pose.x);
         ps.pose.position.y = visbot::in2m(ss.pose.y);
-        const double yaw = visbot::headingToYaw(ss.pose.theta);
+        const double yaw = visbot::headingToYaw(ss.pose.wrappedTheta());
         ps.pose.orientation.z = std::sin(yaw / 2);
         ps.pose.orientation.w = std::cos(yaw / 2);
         posePub_->publish(ps);
@@ -337,6 +373,8 @@ private:
     visbot::Pose startPose_;
     std::string missionName_, leftJoint_, rightJoint_;
     std::vector<std::string> stepLabels_;
+    bool allianceBlue_ = true;
+    bool startPoseOverridden_ = false;
     int64_t staleLimitNs_ = 50'000'000;
     bool loopMission_ = false;
 

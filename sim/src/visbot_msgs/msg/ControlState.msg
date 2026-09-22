@@ -15,7 +15,11 @@ string  step_name
 float64 step_error
 float64 step_elapsed_ms
 string  last_exit
+string  mode                 # drive | turn | swing | point_to_point | disabled
 bool    done
+bool    interfered           # ez::interfered - a motion exited on velocity/timeout
+string  last_action          # most recent mechanism call (intake, clamp, doinker...)
+float64 last_action_at_ms
 
 # raw sensors seen this tick
 float64 imu_heading_deg
