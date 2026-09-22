@@ -1,6 +1,13 @@
-// visbot/slew.hpp — EZ-style slew: ramp the speed cap from a minimum up to
-// the requested max over the first `distance` units of travel, so the drive
-// doesn't slip its wheels on launch.
+// visbot/slew.hpp — a faithful port of ez::slew (EZ-Template v3.2.2).
+//
+// EZ's slew is a straight line in *error space*: at the start of a motion it
+// builds y = mx + b through (x_intercept, sign*min_speed) and (current,
+// max_speed), where x_intercept is `distance_to_travel` beyond the current
+// sensor value. Each tick it evaluates that line at the remaining distance
+// to the intercept, so the cap ramps from min_speed up to max_speed over the
+// first `distance_to_travel` units of travel and then latches off.
+//
+// Verified against src/EZ-Template/slew.cpp.
 #pragma once
 
 #include <cmath>
@@ -11,40 +18,55 @@ namespace visbot {
 
 class Slew {
 public:
+    struct Constants {
+        double distanceToTravel = 0.0;
+        double minSpeed = 0.0;
+    };
+
     Slew() = default;
-    Slew(double distance, double minSpeed) : distance_(distance), minSpeed_(minSpeed) {}
+    Slew(double distance, double minSpeed) : c_{distance, minSpeed} {}
 
-    void setConstants(double distance, double minSpeed) {
-        distance_ = distance;
-        minSpeed_ = minSpeed;
-    }
+    void setConstants(double distance, double minSpeed) { c_ = {distance, minSpeed}; }
+    Constants constants() const { return c_; }
 
-    /// Arm the slew for a new motion.
-    void initialize(bool enabled, double maxSpeed, double target, double current) {
-        enabled_ = enabled;
-        maxSpeed_ = std::fabs(maxSpeed);
-        start_ = current;
+    /// ez::slew::initialize. Note EZ disables slew outright when the
+    /// requested max speed is below min_speed — a slow motion is not ramped.
+    void initialize(bool enabled, double maximumSpeed, double target, double current) {
+        enabled_ = maximumSpeed < c_.minSpeed ? false : enabled;
+        maxSpeed_ = maximumSpeed;
         sign_ = sgn(target - current);
-        if (sign_ == 0) sign_ = 1;
-        output_ = enabled_ ? minSpeed_ : maxSpeed_;
+        xIntercept_ = current + (c_.distanceToTravel * sign_);
+        yIntercept_ = maxSpeed_ * sign_;
+        const double dx = xIntercept_ - current;
+        slope_ = dx != 0.0 ? ((sign_ * c_.minSpeed) - yIntercept_) / dx : 0.0;
+        lastOutput_ = enabled_ ? c_.minSpeed : maxSpeed_;
     }
 
-    /// Current speed cap given how far we've travelled.
+    /// ez::slew::iterate — returns the current speed cap.
     double iterate(double current) {
-        if (!enabled_ || distance_ <= 0.0) { output_ = maxSpeed_; return output_; }
-        const double travelled = std::fabs(current - start_);
-        const double progress = clamp(travelled / distance_, 0.0, 1.0);
-        output_ = minSpeed_ + progress * (maxSpeed_ - minSpeed_);
-        if (output_ > maxSpeed_) output_ = maxSpeed_;
-        return output_;
+        if (enabled_) {
+            error_ = xIntercept_ - current;
+            if (sgn(error_) != sign_) {
+                enabled_ = false;          // travelled past the ramp: done
+                lastOutput_ = maxSpeed_;
+            } else {
+                lastOutput_ = ((slope_ * error_) + yIntercept_) * sign_;
+            }
+        } else {
+            lastOutput_ = maxSpeed_;
+        }
+        return lastOutput_;
     }
 
-    double output() const { return output_; }
+    double output() const { return lastOutput_; }
     bool enabled() const { return enabled_; }
+    void setMaxSpeed(double s) { maxSpeed_ = s; }
+    double maxSpeed() const { return maxSpeed_; }
 
 private:
-    double distance_ = 0.0, minSpeed_ = 0.0, maxSpeed_ = 127.0;
-    double start_ = 0.0, output_ = 127.0;
+    Constants c_{};
+    double maxSpeed_ = 127.0, lastOutput_ = 127.0;
+    double xIntercept_ = 0.0, yIntercept_ = 0.0, slope_ = 0.0, error_ = 0.0;
     int sign_ = 1;
     bool enabled_ = false;
 };
