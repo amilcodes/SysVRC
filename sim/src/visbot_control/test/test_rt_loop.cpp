@@ -9,16 +9,30 @@
 namespace vc = visbot_control;
 
 TEST(SeqLock, NeverTearsUnderConcurrentWrites) {
+    // Every state the reader can observe must satisfy a == ~b. Seed the lock
+    // first so the default-constructed {0, 0} is never one of them, and never
+    // ASSERT out of the loop: that would return with the writer still running
+    // and the thread unjoined.
     struct Pair { uint64_t a, b; };
     vc::SeqLock<Pair> lock;
+    lock.write({0, ~uint64_t(0)});
+
     std::atomic<bool> run{true};
-    std::thread writer([&] { uint64_t i = 0; while (run) { lock.write({i, ~i}); ++i; } });
+    std::thread writer([&] {
+        uint64_t i = 0;
+        while (run) { lock.write({i, ~i}); ++i; }
+    });
+
+    uint64_t torn = 0, reads = 0;
     for (int i = 0; i < 200000; ++i) {
-        Pair p = lock.read();
-        ASSERT_EQ(p.a, ~p.b) << "torn read";
+        const Pair p = lock.read();
+        ++reads;
+        if (p.a != ~p.b) ++torn;
     }
     run = false;
     writer.join();
+
+    EXPECT_EQ(torn, 0u) << torn << " torn reads out of " << reads;
 }
 
 TEST(LatestValue, TracksAge) {
