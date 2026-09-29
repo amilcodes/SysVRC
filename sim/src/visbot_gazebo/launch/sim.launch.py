@@ -2,18 +2,53 @@
 
     ros2 launch visbot_gazebo sim.launch.py                 # headless server
     ros2 launch visbot_gazebo sim.launch.py gui:=true       # with the Gazebo GUI
-    ros2 launch visbot_gazebo sim.launch.py mission:=mogo_rush sched:=other
+    ros2 launch visbot_gazebo sim.launch.py mission:=worlds_mogo_rush.blue sched:=other
 """
+import math
 import os
+import re
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, TimerAction
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+
+
+IN = 0.0254
+AUTONS_DIR = os.environ.get("SYSVRC_AUTONS", "/ws/src/sysvrc/autons")
+
+
+def physical_start(mission: str):
+    """Where the routine physically starts, (x in, y in, compass heading deg).
+
+    Mirrors visbot::resolveMission + physicalStart in auton_file.hpp: the
+    file's `# @field_start` if it has one, else its first odom_xyt_set, else
+    the origin. Built-in routines start at the origin.
+    """
+    if mission in ("skills", "square", "chain"):
+        return 0.0, 0.0, 0.0
+    path = mission if ("/" in mission or mission.endswith(".auton")) else os.path.join(AUTONS_DIR, mission + ".auton")
+    try:
+        text = open(path, encoding="utf-8").read()
+    except OSError:
+        return 0.0, 0.0, 0.0
+    m = re.search(r"^#\s*@field_start\s+(\S+)\s+(\S+)\s+(\S+)", text, re.M)
+    if m:
+        return tuple(float(v) for v in m.groups())
+    m = re.search(r"^odom_xyt_set\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)", text, re.M)
+    return tuple(float(v) for v in m.groups()) if m else (0.0, 0.0, 0.0)
+
+
+def spawn(context):
+    x, y, heading = physical_start(LaunchConfiguration("mission").perform(context))
+    yaw = math.radians(90.0 - heading)  # compass (CW from +y) -> ROS yaw (CCW from +x)
+    return [Node(package="ros_gz_sim", executable="create", output="screen",
+                 arguments=["-topic", "robot_description", "-name", "visbot",
+                            "-x", f"{x * IN:.4f}", "-y", f"{y * IN:.4f}", "-z", "0.08", "-Y", f"{yaw:.4f}"])]
 
 
 def generate_launch_description():
@@ -42,7 +77,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="false"),
-        DeclareLaunchArgument("mission", default_value="skills"),
+        DeclareLaunchArgument("mission", default_value="skills",
+                              description="built-in name, a name in autons/, or a path to an .auton file"),
         DeclareLaunchArgument("sched", default_value="fifo"),
         DeclareLaunchArgument("cpu", default_value="-1"),
         DeclareLaunchArgument("poll_idle", default_value="false"),
@@ -63,8 +99,9 @@ def generate_launch_description():
         Node(package="robot_state_publisher", executable="robot_state_publisher", output="screen",
              parameters=[{"robot_description": robot_description, "use_sim_time": True}]),
 
-        Node(package="ros_gz_sim", executable="create", output="screen",
-             arguments=["-topic", "robot_description", "-name", "visbot", "-x", "0", "-y", "0", "-z", "0.08"]),
+        # Spawn where the routine physically starts, so the controller's belief
+        # (odom_xyt_set) and Gazebo's ground truth describe the same robot.
+        OpaqueFunction(function=spawn),
 
         Node(package="ros_gz_bridge", executable="parameter_bridge", output="screen",
              parameters=[{"config_file": os.path.join(gz_share, "config", "bridge.yaml"), "use_sim_time": True}]),

@@ -29,7 +29,7 @@ def generate_launch_description():
         DeclareLaunchArgument("spin_us", default_value="0.0"),
         DeclareLaunchArgument("dash", default_value="true"),
         Node(package="visbot_control", executable="plant_node", name="visbot_plant",
-             parameters=[cfg], output="screen"),
+             parameters=[cfg, {"mission": mission}], output="screen"),
         Node(package="visbot_control", executable="controller_node", name="visbot_controller",
              parameters=[cfg, {"mission": mission, "sched_policy": sched, "poll_idle": ParameterValue(poll_idle, value_type=bool), "spin_before_deadline_us": ParameterValue(spin_us, value_type=float), "cpu": ParameterValue(cpu, value_type=int)}], output="screen"),
         Node(package="visbot_dash", executable="dash_node", name="visbot_dash", output="screen",

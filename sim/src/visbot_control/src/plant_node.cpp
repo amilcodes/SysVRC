@@ -6,6 +6,7 @@
 // exercised against V5-like timing (10 ms sensors, a few ms of bus latency)
 // without a physics engine in the loop.
 #include <chrono>
+#include <cstdlib>
 #include <cmath>
 #include <deque>
 #include <memory>
@@ -16,6 +17,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "visbot/auton_file.hpp"
 #include "visbot/visbot.hpp"
 #include "visbot_control/latest_value.hpp"
 #include "visbot_control/rt_loop.hpp"
@@ -45,6 +47,18 @@ public:
         start.x = declare_parameter("start_x_in", 0.0);
         start.y = declare_parameter("start_y_in", 0.0);
         start.theta = declare_parameter("start_theta_deg", 0.0);
+        // Start where the routine physically starts (its @field_start, or the
+        // pose odom_xyt_set declares), unless start_* was given explicitly.
+        const std::string mission = declare_parameter("mission", std::string(""));
+        const char* env = std::getenv("SYSVRC_AUTONS");
+        const std::string autonsDir = declare_parameter("autons_dir", std::string(env && *env ? env : "/ws/src/sysvrc/autons"));
+        if (!mission.empty() && start.x == 0.0 && start.y == 0.0 && start.theta == 0.0) {
+            const visbot::AutonParseResult r = visbot::resolveMission(mission, autonsDir);
+            if (r.ok()) {
+                start = visbot::physicalStart(r.def);
+                pp_.walls = r.def.hasFieldStart;
+            }
+        }
 
         plant_ = std::make_unique<visbot::DiffDrivePlant>(rp_, pp_);
         plant_->reset(start);

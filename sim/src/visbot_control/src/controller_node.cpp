@@ -7,6 +7,7 @@
 // the identical controller code the V5 brain runs, and drops its outputs in
 // a mailbox for a non-RT thread to publish.
 #include <atomic>
+#include <cstdlib>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -23,6 +24,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "visbot/auton_file.hpp"
 #include "visbot/visbot.hpp"
 #include "visbot_control/latest_value.hpp"
 #include "visbot_control/rt_loop.hpp"
@@ -60,34 +62,9 @@ double yawFromQuat(double x, double y, double z, double w) {
     return std::atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z));
 }
 
-/// Render one instruction the way it reads in autons.cpp.
-std::string instrLabel(const visbot::Instr& in) {
-    char buf[72];
-    using Op = visbot::Instr::Op;
-    switch (in.op) {
-        case Op::DriveSet:
-            std::snprintf(buf, sizeof buf, "drive %+.0f in @%.0f%s", in.a, in.speed, in.slew ? "" : " noslew");
-            break;
-        case Op::TurnSet:
-            std::snprintf(buf, sizeof buf, "turn to %.0f deg @%.0f", in.a, in.speed);
-            break;
-        case Op::SwingSet:
-            std::snprintf(buf, sizeof buf, "swing %s to %.0f deg @%.0f",
-                          in.side == visbot::SwingSide::Left ? "L" : "R", in.a, in.speed);
-            break;
-        case Op::OdomSet:
-            std::snprintf(buf, sizeof buf, "odom %s(%.0f, %.0f) @%.0f",
-                          in.dir == visbot::DriveDirection::Reverse ? "rev " : "", in.a, in.b, in.speed);
-            break;
-        case Op::Wait:               std::snprintf(buf, sizeof buf, "wait"); break;
-        case Op::WaitUntil:          std::snprintf(buf, sizeof buf, "wait_until %+.1f", in.a); break;
-        case Op::WaitQuickChain:     std::snprintf(buf, sizeof buf, "wait_quick_chain"); break;
-        case Op::Delay:              std::snprintf(buf, sizeof buf, "delay %.0f ms", in.a); break;
-        case Op::SpeedMax:           std::snprintf(buf, sizeof buf, "speed_max %.0f", in.speed); break;
-        case Op::DriveChainConstant: std::snprintf(buf, sizeof buf, "chain_const %.0f in", in.a); break;
-        case Op::Action:             std::snprintf(buf, sizeof buf, "> %s", visbot::toString(in.action)); break;
-    }
-    return buf;
+const char* defaultAutonsDir() {
+    const char* env = std::getenv("SYSVRC_AUTONS");
+    return env && *env ? env : "/ws/src/sysvrc/autons";
 }
 
 }  // namespace
@@ -113,7 +90,7 @@ public:
         startPose_.x = declare_parameter("start_x_in", 0.0);
         startPose_.y = declare_parameter("start_y_in", 0.0);
         startPose_.theta = declare_parameter("start_theta_deg", 0.0);
-        allianceBlue_ = declare_parameter("alliance_blue", true);
+        autonsDir_ = declare_parameter("autons_dir", std::string(defaultAutonsDir()));
         // Only override the mission's own start pose if the caller asked.
         startPoseOverridden_ = startPose_.x != 0.0 || startPose_.y != 0.0 || startPose_.theta != 0.0;
         const double startDelay = declare_parameter("start_delay_s", 2.0);
@@ -181,10 +158,15 @@ private:
             startTimer_ = create_wall_timer(500ms, [this] { startTimer_->cancel(); armMission(); });
             return;
         }
-        const visbot::MissionDef def = visbot::missions::byName(missionName_, allianceBlue_);
+        const visbot::AutonParseResult res = visbot::resolveMission(missionName_, autonsDir_);
+        if (!res.ok()) {
+            for (const auto& e : res.errors) RCLCPP_ERROR(get_logger(), "mission '%s': %s", missionName_.c_str(), e.c_str());
+            return;
+        }
+        const visbot::MissionDef& def = res.def;
+        codeStart_ = def.start;
+        fieldStart_ = visbot::physicalStart(def);
         PendingArm a;
-        // captured before `a` is moved into the mailbox below
-
         // A routine's start pose is part of the routine (odom_xyt_set at the
         // top of every auton), so take it from the mission unless the launch
         // file overrode it.
@@ -192,7 +174,8 @@ private:
         a.mission = def.mission;
         stepLabels_.clear();
         stepLabels_.reserve(a.mission.size());
-        for (const auto& in : a.mission) stepLabels_.push_back(instrLabel(in));
+        for (const auto& in : a.mission) stepLabels_.push_back(visbot::toAutonLine(in));
+        missionLabel_ = def.name;
         const size_t instrCount = a.mission.size();
         const visbot::Pose armedPose = a.pose;
         {
@@ -228,7 +211,7 @@ private:
         // try-lock so the RT thread never blocks on the non-RT side.
         if (armRequested_.load(std::memory_order_acquire) && armMutex_.try_lock()) {
             ctrl_->resetPose(pendingArm_.pose, s);
-            ctrl_->setMission(pendingArm_.mission);
+            ctrl_->setMission(std::move(pendingArm_.mission));  // no allocation on the RT thread
             path_.poses.clear();
             armRequested_.store(false, std::memory_order_release);
             armMutex_.unlock();
@@ -239,8 +222,8 @@ private:
             ++state_.staleTicks;        // hold zero output; the controller keeps its state
         } else {
             wc = ctrl_->tick(s, c.dtSeconds);
-            if (loopMission_ && ctrl_->status().done)
-                ctrl_->setMission(visbot::missions::byName(missionName_, allianceBlue_).mission);
+            // Re-arming allocates, so the executor thread does it (publishStats).
+            if (loopMission_ && ctrl_->status().done) rearmWanted_.store(true, std::memory_order_release);
         }
 
         // V5 units -> body twist (REP-103) for the diff-drive plugin.
@@ -287,6 +270,7 @@ private:
     }
 
     void publishStats() {
+        if (rearmWanted_.exchange(false, std::memory_order_acq_rel) && !armRequested_.load()) armMission();
         const vc::RtStats st = loop_->stats();
         const StateSnapshot ss = stateLock_.read();
         visbot_msgs::msg::ControlStats m;
@@ -324,10 +308,14 @@ private:
         visbot_msgs::msg::ControlState m;
         m.header.stamp = now();
         m.header.frame_id = "field";
-        m.x = ss.pose.x;
-        m.y = ss.pose.y;
-        m.theta_deg = ss.pose.wrappedTheta();
-        m.mission = missionName_;
+        // The controller thinks in the routine's own frame (odom_xyt_set); the
+        // backend's ground truth is in field coordinates. Show both in field
+        // coordinates so the dashboard compares like with like.
+        const visbot::Pose shown = visbot::codeToField(ss.pose, codeStart_, fieldStart_);
+        m.x = shown.x;
+        m.y = shown.y;
+        m.theta_deg = shown.wrappedTheta();
+        m.mission = missionLabel_.empty() ? missionName_ : missionLabel_;
         m.step_labels = stepLabels_;
         m.step_index = ss.status.pc;
         m.step_count = int32_t(ctrl_->mission().size());
@@ -336,7 +324,7 @@ private:
         m.step_elapsed_ms = ss.status.instrElapsedMs;
         m.mode = visbot::toString(ss.status.mode);
         m.interfered = ss.status.interfered;
-        m.last_action = visbot::toString(ss.status.lastAction);
+        m.last_action = ss.status.lastAction[0] ? ss.status.lastAction : "none";
         m.last_action_at_ms = ss.status.lastActionAtMs;
         m.last_exit = visbot::toString(ss.status.lastExit);
         m.done = ss.status.done;
@@ -350,9 +338,10 @@ private:
 
         geometry_msgs::msg::PoseStamped ps;
         ps.header = m.header;
-        ps.pose.position.x = visbot::in2m(ss.pose.x);
-        ps.pose.position.y = visbot::in2m(ss.pose.y);
-        const double yaw = visbot::headingToYaw(ss.pose.wrappedTheta());
+        const visbot::Pose fp = visbot::codeToField(ss.pose, codeStart_, fieldStart_);
+        ps.pose.position.x = visbot::in2m(fp.x);
+        ps.pose.position.y = visbot::in2m(fp.y);
+        const double yaw = visbot::headingToYaw(fp.wrappedTheta());
         ps.pose.orientation.z = std::sin(yaw / 2);
         ps.pose.orientation.w = std::cos(yaw / 2);
         posePub_->publish(ps);
@@ -373,7 +362,9 @@ private:
     visbot::Pose startPose_;
     std::string missionName_, leftJoint_, rightJoint_;
     std::vector<std::string> stepLabels_;
-    bool allianceBlue_ = true;
+    std::string autonsDir_, missionLabel_;
+    visbot::Pose codeStart_{}, fieldStart_{};
+    std::atomic<bool> rearmWanted_{false};
     bool startPoseOverridden_ = false;
     int64_t staleLimitNs_ = 50'000'000;
     bool loopMission_ = false;

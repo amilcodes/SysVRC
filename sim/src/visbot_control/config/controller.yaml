@@ -8,7 +8,7 @@ visbot_controller:
     poll_idle: false          # with cpu>=0: keep that core out of idle states (VMs, containers)
     spin_before_deadline_us: 0.0  # hybrid sleep: spin for the last N us before each deadline
     stale_limit_ms: 50.0      # zero the outputs if sensors are older than this
-    mission: skills           # skills | mogo_rush | square
+    mission: skills           # built-in (skills|square|chain), a name in autons/, or a path to an .auton file
     loop_mission: false
     start_delay_s: 2.0
     start_x_in: 0.0
