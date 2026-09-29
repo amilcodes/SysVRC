@@ -31,12 +31,15 @@ x=$(echo "$STATE" | awk '/^x:/{print $2}'); y=$(echo "$STATE" | awk '/^y:/{print
 fail=0
 [ "$done_flag" = "true" ] || { echo "FAIL: mission not done"; fail=1; }
 [ "${overruns:-1}" = "0" ] || { echo "FAIL: $overruns overruns"; fail=1; }
-python3 - "$p99" "$x" "$y" <<'PY' || fail=1
+python3 - "$p99" "$x" "$y" "$MISSION" <<'PY' || fail=1
 import sys, math
-p99, x, y = map(float, sys.argv[1:])
+p99, x, y = map(float, sys.argv[1:4])
+mission = sys.argv[4]
 ok = True
 if p99 > 4000: print(f"FAIL: wake p99 {p99} us > 4000 us"); ok = False
-if math.hypot(x, y) > 4.0: print(f"FAIL: ended {math.hypot(x,y):.1f} in from origin"); ok = False
+# The built-in skills loop is designed to come back to where it started.
+if mission == "skills" and math.hypot(x, y) > 4.0:
+    print(f"FAIL: skills loop ended {math.hypot(x,y):.1f} in from its start"); ok = False
 sys.exit(0 if ok else 1)
 PY
 [ $fail -eq 0 ] && echo "SMOKE OK" || { echo "--- launch log tail ---"; tail -30 /tmp/smoke_launch.log; exit 1; }

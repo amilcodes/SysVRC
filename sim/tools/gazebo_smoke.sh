@@ -22,13 +22,28 @@ teardown() {
 trap teardown EXIT
 sleep "$SECS"
 
+# One-shot reads can take several seconds on a small CI runner: the ros2 CLI
+# has to start and discover the graph. Retry with a generous timeout rather
+# than mistake a slow start for a dead topic.
+echo_once() {  # topic [extra args...]
+  local out=""
+  for _ in 1 2 3; do
+    out=$(timeout 15 ros2 topic echo --once "$@" 2>/dev/null || true)
+    [ -n "$out" ] && break
+  done
+  printf '%s' "$out"
+}
+
 echo "--- topic rates (gz -> ros bridge) ---"
+imu_ok=0
 for t in /visbot/imu /visbot/joint_states /visbot/odom; do
-  printf "%-22s " "$t"; { timeout 4 ros2 topic hz "$t" 2>/dev/null || true; } | grep -m1 "average rate" || echo "NO DATA"
+  rate=$({ timeout 10 ros2 topic hz "$t" 2>/dev/null || true; } | grep -m1 "average rate" || true)
+  printf "%-22s %s\n" "$t" "${rate:-NO DATA}"
+  [ "$t" = /visbot/imu ] && [ -n "$rate" ] && imu_ok=1
 done
-STATE=$(timeout 5 ros2 topic echo --once /visbot/control_state 2>/dev/null || true)
-STATS=$(timeout 5 ros2 topic echo --once --no-arr /visbot/control_stats 2>/dev/null || true)
-ODOM=$(timeout 5 ros2 topic echo --once /visbot/odom 2>/dev/null || true)
+STATE=$(echo_once /visbot/control_state)
+STATS=$(echo_once /visbot/control_stats --no-arr)
+ODOM=$(echo_once /visbot/odom)
 echo "--- controller ---"
 echo "$STATE" | grep -E "^(x|y|theta_deg|step_index|step_count|step_name|last_exit|done):" || echo "(no control_state)"
 echo "$STATS" | grep -E "^(sched_policy|ticks|overruns|missed_deadlines|stale_sensor_ticks|wake_latency_p99_us|wake_latency_max_us|sensor_age_mean_us):" || true
@@ -36,9 +51,8 @@ echo "--- gazebo ground truth (m) ---"
 echo "$ODOM" | sed -n '/position:/,/z:/p' | tr -d ' ' | tr '\n' ' ' || true; echo
 
 done_flag=$(echo "$STATE" | awk '/^done:/{print $2}')
-imu_ok=$(timeout 4 ros2 topic hz /visbot/imu 2>/dev/null | grep -c "average rate" || true)
 fail=0
-[ "$imu_ok" != "0" ] || { echo "FAIL: no IMU data bridged from Gazebo"; fail=1; }
+[ "$imu_ok" = "1" ] || { echo "FAIL: no IMU data bridged from Gazebo"; fail=1; }
 [ "$done_flag" = "true" ] || { echo "FAIL: mission not done"; fail=1; }
 python3 - "$STATE" "$ODOM" "$DRIFT_MAX" <<'PY' || fail=1
 import re, sys, math
