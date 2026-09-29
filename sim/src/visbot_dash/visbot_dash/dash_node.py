@@ -55,7 +55,14 @@ class DashNode(Node):
         self.create_subscription(ControlStats, "/visbot/control_stats", self.on_stats, 10)
         self.create_subscription(Odometry, "/visbot/odom", self.on_odom, qos_profile_sensor_data)
         rec = self.get_parameter("record").value
-        self.recorder = open(rec, "w") if rec else None
+        self.recorder = None
+        if rec:
+            # A missing folder shouldn't take the whole dashboard down.
+            try:
+                os.makedirs(os.path.dirname(os.path.abspath(rec)), exist_ok=True)
+                self.recorder = open(rec, "w")
+            except OSError as e:
+                self.get_logger().error(f"not recording: can't write {rec} ({e})")
 
     def on_state(self, m: ControlState):
         d = {
@@ -105,6 +112,12 @@ class DashHandler(http.server.SimpleHTTPRequestHandler):
 
     def log_message(self, *a, **k):
         pass
+
+    def end_headers(self):
+        # The page changes whenever the package is rebuilt; never let a
+        # browser keep showing an old copy.
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
 
     def do_POST(self):
         if self.path != "/snapshot":
@@ -160,14 +173,14 @@ async def ws_main(node: DashNode, port):
                         rec["stats"] = {k: v for k, v in rec["stats"].items() if not k.endswith("_hist")}
                     node.recorder.write(json.dumps(rec) + "\n")
                 n += 1
-                dead = []
-                for c in clients:
+                # Iterate over a copy: a browser can connect or disconnect
+                # while we're awaiting a send, and mutating the set under a
+                # live iterator raises and takes the whole node down.
+                for c in list(clients):
                     try:
                         await c.send(msg)
                     except Exception:
-                        dead.append(c)
-                for c in dead:
-                    clients.discard(c)
+                        clients.discard(c)
             await asyncio.sleep(1 / 30)
 
     async with websockets.serve(handler, "0.0.0.0", port):

@@ -47,5 +47,40 @@ class Units(unittest.TestCase):
         self.assertAlmostEqual(3.6576 * IN_PER_M, 144.0, places=3)  # 12 ft field
 
 
+class Broadcast(unittest.TestCase):
+    def test_clients_can_come_and_go_during_a_broadcast(self):
+        # Regression: a browser disconnecting mid-send used to raise
+        # "Set changed size during iteration" and kill the dashboard.
+        import asyncio
+        import inspect
+        from visbot_dash import dash_node
+        src = inspect.getsource(dash_node.ws_main)
+        self.assertIn("for c in list(clients)", src)
+
+        async def scenario():
+            clients = set()
+
+            class Client:
+                def __init__(self, drop):
+                    self.drop = drop
+
+                async def send(self, _):
+                    await asyncio.sleep(0)
+                    if self.drop:
+                        clients.discard(self)      # disconnects mid-broadcast
+                        clients.add(Client(False))  # and someone else connects
+                        raise ConnectionError
+
+            clients.update({Client(True), Client(False), Client(False)})
+            for c in list(clients):
+                try:
+                    await c.send("x")
+                except Exception:
+                    clients.discard(c)
+            return len(clients)
+
+        self.assertEqual(asyncio.run(scenario()), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -258,8 +258,16 @@
       ol.innerHTML = ''; exits.length = 0;
       for (let i = 0; i < s.steps; i++) { const li = document.createElement('li'); li.innerHTML = `<span>#${i + 1} <span class="n"></span></span><span class="x"></span>`; ol.appendChild(li); }
     }
-    if (s.step > 0 && s.step <= s.steps) exits[s.step - 1] = s.last_exit;
-    if (s.done) exits[s.steps - 1] = s.last_exit;
+    // An exit reason belongs to the wait that produced it. Several
+    // instructions can run in one tick, so walk back to the nearest wait
+    // before the current instruction instead of blaming the previous row.
+    const isWait = (i) => s.labels && s.labels[i] && s.labels[i].startsWith("pid_wait");
+    const upTo = s.done ? s.steps : s.step;
+    for (let i = upTo - 1; i >= 0; i--) {
+      if (!isWait(i)) continue;
+      if (!exits[i]) exits[i] = s.last_exit;
+      break;
+    }
     [...ol.children].forEach((li, i) => {
       const wasActive = li.className === 'active';
       li.className = i < s.step || s.done ? 'done' : i === s.step ? 'active' : '';
