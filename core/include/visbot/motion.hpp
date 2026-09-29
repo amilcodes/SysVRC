@@ -7,7 +7,7 @@
 //
 //     chassis.pid_drive_set(36, 127);     -> Instr::driveSet(36, 127)
 //     chassis.pid_wait_until(12);         -> Instr::waitUntil(12)
-//     leftDoinker.toggle();               -> Instr::act(ActionId::DoinkerLeft)
+//     leftDoinker.toggle();               -> Instr::act("leftDoinker.toggle()")
 //     chassis.pid_speed_max_set(70);      -> Instr::speedMax(70)
 //     chassis.pid_wait();                 -> Instr::wait()
 //
@@ -22,6 +22,8 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -66,6 +68,13 @@ inline double newTurnTarget(double target, double current, AngleBehavior b) {
     return target;
 }
 
+/// ez::Drive::pid_speed_max_set: `max_speed = abs(clamp(speed, 127, -127))`.
+/// The sign of a speed is discarded, so pid_swing_set(..., -100) is identical
+/// to +100; direction only ever comes from the target.
+inline double ezSpeed(double speed) {
+    return std::fabs(clamp(speed, -127.0, 127.0));
+}
+
 /// ez::util::absolute_angle_to_point — compass bearing from current to target.
 inline double absoluteAngleToPoint(double tx, double ty, double cx, double cy) {
     return rad2deg(std::atan2(tx - cx, ty - cy));
@@ -78,36 +87,14 @@ inline Pose vectorOffPoint(double added, const Pose& p) {
             p.theta};
 }
 
-/// Mechanism hooks. The sim models no intake or clamp, but *when* a routine
-/// fires them is half of what makes it a routine, so they are recorded and
-/// surfaced on the dashboard rather than silently dropped.
-enum class ActionId : uint8_t {
-    None, IntakeIn, IntakeOut, IntakeStop, MogoClamp, MogoRelease,
-    DoinkerLeft, DoinkerRight, Ladybrown, ColorSortOn, ColorSortOff,
-};
-
-inline const char* toString(ActionId a) {
-    switch (a) {
-        case ActionId::None:         return "none";
-        case ActionId::IntakeIn:     return "intake_in";
-        case ActionId::IntakeOut:    return "intake_out";
-        case ActionId::IntakeStop:   return "intake_stop";
-        case ActionId::MogoClamp:    return "mogo_clamp";
-        case ActionId::MogoRelease:  return "mogo_release";
-        case ActionId::DoinkerLeft:  return "doinker_left";
-        case ActionId::DoinkerRight: return "doinker_right";
-        case ActionId::Ladybrown:    return "ladybrown";
-        case ActionId::ColorSortOn:  return "color_sort_on";
-        case ActionId::ColorSortOff: return "color_sort_off";
-    }
-    return "?";
-}
 
 struct Instr {
     enum class Op : uint8_t {
-        DriveSet, TurnSet, SwingSet, OdomSet,     // set a motion (non-blocking)
-        Wait, WaitUntil, WaitQuickChain, Delay,   // blocking
-        SpeedMax, DriveChainConstant, Action,     // immediate
+        DriveSet, TurnSet, TurnToPoint, TurnRelative, SwingSet, OdomSet,  // set a motion
+        DriveRaw,                                           // chassis.drive_set(l, r)
+        Wait, WaitUntil, WaitQuick, WaitQuickChain, Delay,  // blocking
+        SpeedMax, DriveChainConstant, TurnChainConstant,    // immediate
+        SlewDriveConstants, OdomLookAhead, OdomReset, Action,
     };
 
     Op op = Op::Wait;
@@ -117,8 +104,12 @@ struct Instr {
     DriveDirection dir = DriveDirection::Forward;
     AngleBehavior behavior = AngleBehavior::Shortest;
     SwingSide side = SwingSide::Left;
-    ActionId action = ActionId::None;
     double timeoutMs = 0.0;  // backstop for headless runs, not an EZ feature
+    /// Mechanism call this instruction stands for (intake, clamp, a doinker…).
+    /// The sim does not model mechanisms, but *when* a routine fires them is
+    /// half of what makes it a routine, so they are recorded and reported.
+    std::string label;
+    int sourceLine = 0;      // line in the original autons.cpp, when imported
 
     // --- motions ---
     static Instr driveSet(double inches, double speed = 110, bool slew = true) {
@@ -127,11 +118,26 @@ struct Instr {
     static Instr turnSet(double headingDeg, double speed = 90, AngleBehavior b = AngleBehavior::Shortest) {
         Instr i; i.op = Op::TurnSet; i.a = headingDeg; i.speed = speed; i.behavior = b; i.slew = false; return i;
     }
+    /// pid_turn_set({x, y}, fwd|rev, speed): keep turning to face a point.
+    static Instr turnToPoint(double x, double y, double speed = 90, DriveDirection d = DriveDirection::Forward,
+                             AngleBehavior b = AngleBehavior::Shortest) {
+        Instr i; i.op = Op::TurnToPoint; i.a = x; i.b = y; i.speed = speed; i.dir = d; i.behavior = b;
+        i.slew = false; return i;
+    }
+    /// pid_turn_relative_set(delta, speed): turn relative to the last heading target.
+    static Instr turnRelative(double deltaDeg, double speed = 90, AngleBehavior b = AngleBehavior::Shortest) {
+        Instr i; i.op = Op::TurnRelative; i.a = deltaDeg; i.speed = speed; i.behavior = b; i.slew = false; return i;
+    }
     static Instr swingSet(SwingSide s, double headingDeg, double speed = 90, double oppositeSpeed = 0.0) {
         Instr i; i.op = Op::SwingSet; i.side = s; i.a = headingDeg; i.speed = speed; i.b = oppositeSpeed; i.slew = false; return i;
     }
     static Instr odomSet(double x, double y, double speed = 110, DriveDirection d = DriveDirection::Forward) {
         Instr i; i.op = Op::OdomSet; i.a = x; i.b = y; i.speed = speed; i.dir = d; return i;
+    }
+    /// chassis.drive_set(left, right): EZ drops out of PID mode and applies
+    /// this voltage (V5 units) until the next motion is set.
+    static Instr driveRaw(double left, double right) {
+        Instr i; i.op = Op::DriveRaw; i.a = left; i.b = right; return i;
     }
     // --- waits ---
     static Instr wait(double timeoutMs = 5000) {
@@ -140,6 +146,9 @@ struct Instr {
     static Instr waitUntil(double v, double timeoutMs = 5000) {
         Instr i; i.op = Op::WaitUntil; i.a = v; i.timeoutMs = timeoutMs; return i;
     }
+    static Instr waitQuick(double timeoutMs = 5000) {
+        Instr i; i.op = Op::WaitQuick; i.timeoutMs = timeoutMs; return i;
+    }
     static Instr waitQuickChain(double timeoutMs = 5000) {
         Instr i; i.op = Op::WaitQuickChain; i.timeoutMs = timeoutMs; return i;
     }
@@ -147,33 +156,52 @@ struct Instr {
     // --- immediate ---
     static Instr speedMax(double s) { Instr i; i.op = Op::SpeedMax; i.speed = s; return i; }
     static Instr driveChainConstant(double v) { Instr i; i.op = Op::DriveChainConstant; i.a = v; return i; }
-    static Instr act(ActionId id, double arg = 0) { Instr i; i.op = Op::Action; i.action = id; i.a = arg; return i; }
+    static Instr turnChainConstant(double v) { Instr i; i.op = Op::TurnChainConstant; i.a = v; return i; }
+    static Instr slewDriveConstants(double dist, double minSpeed) {
+        Instr i; i.op = Op::SlewDriveConstants; i.a = dist; i.b = minSpeed; return i;
+    }
+    static Instr odomLookAhead(double v) { Instr i; i.op = Op::OdomLookAhead; i.a = v; return i; }
+    /// chassis.odom_xyt_set(x, y, theta) partway through a routine.
+    static Instr odomReset(double x, double y, double thetaDeg) {
+        Instr i; i.op = Op::OdomReset; i.a = x; i.b = y; i.speed = thetaDeg; return i;
+    }
+    static Instr act(std::string label) { Instr i; i.op = Op::Action; i.label = std::move(label); return i; }
 
+    /// EZ's own name for this call, as written in autons.cpp and .auton files.
     const char* name() const {
         switch (op) {
-            case Op::DriveSet:           return "drive_set";
-            case Op::TurnSet:            return "turn_set";
-            case Op::SwingSet:           return "swing_set";
-            case Op::OdomSet:            return "odom_set";
-            case Op::Wait:               return "wait";
-            case Op::WaitUntil:          return "wait_until";
-            case Op::WaitQuickChain:     return "wait_quick_chain";
+            case Op::DriveSet:           return "pid_drive_set";
+            case Op::TurnSet:            return "pid_turn_set";
+            case Op::TurnToPoint:        return "pid_turn_to_point";
+            case Op::TurnRelative:       return "pid_turn_relative_set";
+            case Op::SwingSet:           return "pid_swing_set";
+            case Op::OdomSet:            return "pid_odom_set";
+            case Op::DriveRaw:           return "drive_set";
+            case Op::Wait:               return "pid_wait";
+            case Op::WaitUntil:          return "pid_wait_until";
+            case Op::WaitQuick:          return "pid_wait_quick";
+            case Op::WaitQuickChain:     return "pid_wait_quick_chain";
             case Op::Delay:              return "delay";
-            case Op::SpeedMax:           return "speed_max";
-            case Op::DriveChainConstant: return "chain_const";
+            case Op::SpeedMax:           return "pid_speed_max_set";
+            case Op::DriveChainConstant: return "pid_drive_chain_constant_set";
+            case Op::TurnChainConstant:  return "pid_turn_chain_constant_set";
+            case Op::SlewDriveConstants: return "slew_drive_constants_set";
+            case Op::OdomLookAhead:      return "odom_look_ahead_set";
+            case Op::OdomReset:          return "odom_xyt_set";
             case Op::Action:             return "action";
         }
         return "?";
     }
 
     bool blocking() const {
-        return op == Op::Wait || op == Op::WaitUntil || op == Op::WaitQuickChain || op == Op::Delay;
+        return op == Op::Wait || op == Op::WaitUntil || op == Op::WaitQuick ||
+               op == Op::WaitQuickChain || op == Op::Delay;
     }
 };
 
 using Mission = std::vector<Instr>;
 
-enum class DriveMode : uint8_t { Disabled, Drive, Turn, Swing, PointToPoint };
+enum class DriveMode : uint8_t { Disabled, Drive, Turn, Swing, PointToPoint, Raw };
 
 inline const char* toString(DriveMode m) {
     switch (m) {
@@ -182,6 +210,7 @@ inline const char* toString(DriveMode m) {
         case DriveMode::Turn:         return "turn";
         case DriveMode::Swing:        return "swing";
         case DriveMode::PointToPoint: return "point_to_point";
+        case DriveMode::Raw:          return "raw";
     }
     return "?";
 }
@@ -195,10 +224,14 @@ struct MotionStatus {
     double instrElapsedMs = 0.0;
     double motionElapsedMs = 0.0;
     bool done = false;
-    bool interfered = false;      // ez::interfered — exited on velocity/timeout
-    ActionId lastAction = ActionId::None;
-    double lastActionArg = 0.0;
+    bool interfered = false;      // ez::interfered: exited on velocity/timeout
+    /// Most recent mechanism call. A fixed buffer rather than a pointer into
+    /// the mission, so the struct stays trivially copyable and can be handed
+    /// across threads through a SeqLock.
+    char lastAction[48] = {0};
+    int lastActionPc = -1;
     double lastActionAtMs = -1.0;
+    int actionCount = 0;
 };
 
 class MotionController {
@@ -227,6 +260,8 @@ public:
 
     void setMission(Mission m) {
         mission_ = std::move(m);
+        raw_ = {};
+        draining_ = false;
         pc_ = -1;
         status_ = {};
         mode_ = DriveMode::Disabled;
@@ -260,6 +295,7 @@ public:
             case DriveMode::Turn:         cmd = turnTask(); break;
             case DriveMode::Swing:        cmd = swingTask(); break;
             case DriveMode::PointToPoint: cmd = ptpTask(); break;
+            case DriveMode::Raw:          cmd = raw_; break;
             case DriveMode::Disabled:     break;
         }
         return cmd.clipped();
@@ -272,8 +308,20 @@ private:
         status_.instrElapsedMs = 0.0;
         waitArmed_ = false;
         if (pc_ >= static_cast<int>(mission_.size())) {
-            status_.done = true;
             status_.pc = pc_;
+            // A routine that ends on a motion with no wait after it (very
+            // common: `set_drive(-30);` as the last line) doesn't stop the
+            // robot on the brain. The auton function returns, and EZ's PID
+            // task keeps driving that motion. Do the same: let it settle.
+            if (mode_ == DriveMode::Drive || mode_ == DriveMode::Turn || mode_ == DriveMode::Swing ||
+                mode_ == DriveMode::PointToPoint) {
+                draining_ = true;
+                drainMs_ = 0.0;
+                resetExitLatches();
+                status_.instr = "finishing last motion";
+                return;
+            }
+            status_.done = true;
             status_.instr = "done";
             mode_ = DriveMode::Disabled;
             return;
@@ -286,8 +334,24 @@ private:
     /// pid_wait; that is exactly this loop.
     void runProgram() {
         if (mission_.empty() || pc_ < 0) return;  // no mission armed yet
+        if (draining_) {
+            // Divergence: on the brain the motion would hold its target until
+            // the auton period ends. Headless runs need an end, so this stops
+            // once the motion settles, or after kDrainLimitMs if it never does.
+            drainMs_ += dt_ * 1000.0;
+            const ExitReason e = motionExit(0.0);
+            if (e != ExitReason::Running || drainMs_ > kDrainLimitMs) {
+                noteExit(e != ExitReason::Running ? e : ExitReason::Timeout);
+                draining_ = false;
+                status_.done = true;
+                status_.instr = "done";
+                mode_ = DriveMode::Disabled;
+            }
+            return;
+        }
         for (int guard = 0; guard < 256; ++guard) {
-            if (status_.done) return;
+            // advance() may have just run off the end into draining.
+            if (status_.done || draining_ || pc_ >= static_cast<int>(mission_.size())) return;
             const Instr& in = mission_[pc_];
             if (in.blocking()) {
                 status_.instrElapsedMs += dt_ * 1000.0;
@@ -305,15 +369,40 @@ private:
         switch (in.op) {
             case Instr::Op::DriveSet:           setDrive(in); break;
             case Instr::Op::TurnSet:            setTurn(in); break;
+            case Instr::Op::TurnRelative: {
+                // ez: absolute target = headingPID target + delta
+                Instr abs = in;
+                abs.a = headingPid_.target() + in.a;
+                abs.behavior = AngleBehavior::Raw;  // the sum is already the target
+                setTurn(abs);
+                break;
+            }
+            case Instr::Op::TurnToPoint:        setTurnToPoint(in); break;
             case Instr::Op::SwingSet:           setSwing(in); break;
             case Instr::Op::OdomSet:            setOdom(in); break;
-            case Instr::Op::SpeedMax:           maxSpeed_ = in.speed; break;
+            case Instr::Op::DriveRaw:
+                raw_ = {in.a, in.b};
+                mode_ = DriveMode::Raw;
+                status_.motionElapsedMs = 0.0;
+                break;
+            case Instr::Op::SpeedMax:           maxSpeed_ = ezSpeed(in.speed); break;
             case Instr::Op::DriveChainConstant: chainConstant_ = std::fabs(in.a); break;
+            case Instr::Op::TurnChainConstant:  gains_.turnChainConstantDeg = std::fabs(in.a); break;
+            case Instr::Op::SlewDriveConstants:
+                gains_.slewDriveDistanceIn = in.a;
+                gains_.slewDriveMinSpeed = in.b;
+                slewLeft_.setConstants(in.a, in.b);
+                slewRight_.setConstants(in.a, in.b);
+                break;
+            case Instr::Op::OdomLookAhead:      gains_.odomLookAheadIn = in.a; break;
+            case Instr::Op::OdomReset:
+                resetPose({in.a, in.b, in.speed}, sensors_);
+                break;
             case Instr::Op::Action:
-                status_.lastAction = in.action;
-                status_.lastActionArg = in.a;
+                std::strncpy(status_.lastAction, in.label.c_str(), sizeof(status_.lastAction) - 1);
+                status_.lastActionPc = pc_;
                 status_.lastActionAtMs = totalMs_;
-                ++actionCount_;
+                ++status_.actionCount;
                 break;
             default: break;
         }
@@ -322,7 +411,25 @@ private:
     void armWait(const Instr& in) {
         resetExitLatches();
         if (in.op == Instr::Op::WaitUntil) {
-            armPassDrive(in.a);
+            // ez::pid_wait_until means different things per mode: a distance
+            // along the drive for drive/odom motions, an absolute heading for
+            // turns and swings (resolved the short way, as EZ does).
+            if (mode_ == DriveMode::Turn || mode_ == DriveMode::Swing)
+                armPassHeading(newTurnTarget(in.a, odom_.pose().theta, AngleBehavior::Shortest));
+            else
+                armPassDrive(in.a);
+        } else if (in.op == Instr::Op::WaitQuick) {
+            // ez::pid_wait_quick: wait until the robot passes the target the
+            // user asked for, without extending it first.
+            switch (mode_) {
+                case DriveMode::Drive:        armPassDrive(chainTargetStart_); break;
+                case DriveMode::Turn:
+                case DriveMode::Swing:        armPassHeading(chainTargetStart_); break;
+                case DriveMode::PointToPoint: waitKind_ = WaitKind::PassPoint;
+                                              waitPointSign_ = sgn(isPastTarget(odomTargetOriginal_));
+                                              break;
+                default:                      waitKind_ = WaitKind::ExitCond; break;
+            }
         } else if (in.op == Instr::Op::WaitQuickChain) {
             // ez::pid_wait_quick_chain extends the PID target by the chain
             // constant and then calls pid_wait_quick, which waits only until
@@ -338,7 +445,7 @@ private:
                 case DriveMode::PointToPoint: waitKind_ = WaitKind::PassPoint;
                                               waitPointSign_ = sgn(isPastTarget(odomTargetOriginal_));
                                               break;
-                case DriveMode::Disabled:     waitKind_ = WaitKind::ExitCond; break;
+                default:                      waitKind_ = WaitKind::ExitCond; break;
             }
         } else {
             waitKind_ = WaitKind::ExitCond;
@@ -380,7 +487,7 @@ private:
                     break;
                 case WaitKind::ExitCond: break;
             }
-            if (passed) return true;
+            if (passed) { status_.lastExit = ExitReason::Passed; return true; }
             // Failsafe: the motion ended before we ever got there.
             const ExitReason e = motionExit(in.timeoutMs);
             if (e != ExitReason::Running) { noteExit(e); return true; }
@@ -434,7 +541,8 @@ private:
                 poll(exitB_, aOdomPid_);
                 return combine(exitA_, exitB_);
             case DriveMode::Disabled:
-                return ExitReason::SmallError;  // nothing to wait for
+            case DriveMode::Raw:
+                return ExitReason::SmallError;  // no PID running, nothing to wait for
         }
         return ExitReason::Running;
     }
@@ -447,7 +555,7 @@ private:
 
     void setDrive(const Instr& in) {
         leftPid_.reset(); rightPid_.reset();
-        maxSpeed_ = in.speed;
+        maxSpeed_ = ezSpeed(in.speed);
         lStart_ = leftInches(); rStart_ = rightInches();
         chainTargetStart_ = in.a;
         chainSensorStart_ = lStart_;
@@ -463,16 +571,48 @@ private:
 
     void setTurn(const Instr& in) {
         turnPid_.reset();
+        turnToPoint_ = false;
         const double target = newTurnTarget(in.a, odom_.pose().theta, in.behavior);
         chainSensorStart_ = odom_.pose().theta;
         chainTargetStart_ = target;
         turnPid_.setTarget(target);
         headingPid_.setTarget(target);  // the next drive holds this heading
-        maxSpeed_ = in.speed;
+        maxSpeed_ = ezSpeed(in.speed);
         slewTurn_.initialize(in.slew, maxSpeed_, target, chainSensorStart_);
         mode_ = DriveMode::Turn;
         resetExitLatches();
         status_.motionElapsedMs = 0.0;
+    }
+
+    /// ez: pid_turn_set(pose, dir, speed) -> TURN_TO_POINT. The target
+    /// heading is recomputed every tick from the current pose, so the robot
+    /// keeps facing the point even if it gets pushed.
+    void setTurnToPoint(const Instr& in) {
+        turnPid_.reset();
+        turnPoint_ = {in.a, in.b, 0};
+        turnPointDir_ = in.dir;
+        turnPointBehavior_ = in.behavior;
+        turnPointImuStart_ = odom_.pose().theta;
+        const double target = turnToPointTarget();
+        chainSensorStart_ = odom_.pose().theta;
+        chainTargetStart_ = target;
+        turnPid_.setTarget(target);
+        headingPid_.setTarget(target);
+        maxSpeed_ = ezSpeed(in.speed);
+        slewTurn_.initialize(in.slew, maxSpeed_, target, chainSensorStart_);
+        turnToPoint_ = true;
+        mode_ = DriveMode::Turn;
+        resetExitLatches();
+        status_.motionElapsedMs = 0.0;
+    }
+
+    /// Divergence: EZ faces reverse points through find_point_to_face; this
+    /// adds 180 degrees to the bearing, which is the same heading.
+    double turnToPointTarget() const {
+        const Pose cur = odom_.pose();
+        double bearing = absoluteAngleToPoint(turnPoint_.x, turnPoint_.y, cur.x, cur.y);
+        if (turnPointDir_ == DriveDirection::Reverse) bearing += 180.0;
+        return newTurnTarget(wrapDeg(bearing), turnPointImuStart_, turnPointBehavior_);
     }
 
     void setSwing(const Instr& in) {
@@ -488,7 +628,7 @@ private:
         lStart_ = leftInches(); rStart_ = rightInches();
         leftPid_.setTarget(lStart_);
         rightPid_.setTarget(rStart_);
-        maxSpeed_ = in.speed;
+        maxSpeed_ = ezSpeed(in.speed);
         slewSwing_.initialize(in.slew, maxSpeed_, target, chainSensorStart_);
         mode_ = DriveMode::Swing;
         resetExitLatches();
@@ -497,7 +637,7 @@ private:
 
     void setOdom(const Instr& in) {
         xyPid_.reset(); aOdomPid_.reset(); leftPid_.reset(); rightPid_.reset();
-        maxSpeed_ = in.speed;
+        maxSpeed_ = ezSpeed(in.speed);
         driveDir_ = in.dir;
         odomTarget_ = {in.a, in.b, 0};
         odomTargetOriginal_ = odomTarget_;
@@ -543,7 +683,8 @@ private:
                 findPointToFace();
                 break;
             }
-            case DriveMode::Disabled: break;
+            case DriveMode::Disabled:
+            case DriveMode::Raw: break;
         }
     }
 
@@ -592,6 +733,11 @@ private:
     /// ez::Drive::turn_pid_task
     WheelCmd turnTask() {
         const double theta = odom_.pose().theta;
+        if (turnToPoint_) {
+            const double target = turnToPointTarget();
+            turnPid_.setTarget(target);
+            headingPid_.setTarget(target);
+        }
         turnPid_.compute(theta, dt_);
         slewTurn_.setMaxSpeed(maxSpeed_);
         slewTurn_.iterate(theta);
@@ -725,13 +871,19 @@ private:
     DriveMode mode_ = DriveMode::Disabled;
     SensorSnapshot sensors_{};
     double dt_ = 0.010, totalMs_ = 0.0;
-    int actionCount_ = 0;
+    WheelCmd raw_{};
 
     double maxSpeed_ = 127.0;
     bool headingOn_ = true;
     double lStart_ = 0.0, rStart_ = 0.0;
     double chainTargetStart_ = 0.0, chainSensorStart_ = 0.0;
     double chainConstant_ = 3.0;
+
+    bool turnToPoint_ = false;
+    Pose turnPoint_{};
+    DriveDirection turnPointDir_ = DriveDirection::Forward;
+    AngleBehavior turnPointBehavior_ = AngleBehavior::Shortest;
+    double turnPointImuStart_ = 0.0;
 
     SwingSide swingSide_ = SwingSide::Left;
     double swingOppositeSpeed_ = 0.0;
@@ -748,6 +900,9 @@ private:
     enum class WaitKind : uint8_t { ExitCond, PassDrive, PassHeading, PassPoint };
     WaitKind waitKind_ = WaitKind::ExitCond;
     bool waitArmed_ = false;
+    bool draining_ = false;
+    double drainMs_ = 0.0;
+    static constexpr double kDrainLimitMs = 5000.0;
     double waitLTarget_ = 0.0, waitRTarget_ = 0.0;
     int waitLSign_ = 1, waitRSign_ = 1;
     double waitHeadingTarget_ = 0.0;

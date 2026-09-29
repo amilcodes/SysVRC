@@ -40,7 +40,9 @@ struct ExitConditions {
     }
 };
 
-enum class ExitReason : uint8_t { Running = 0, SmallError, BigError, Velocity, Timeout, NoConstants };
+/// Passed is not an EZ exit: it marks a pid_wait_until / pid_wait_quick that
+/// released because the robot crossed its target, not because a PID settled.
+enum class ExitReason : uint8_t { Running = 0, SmallError, BigError, Velocity, Timeout, NoConstants, Passed };
 
 inline const char* toString(ExitReason r) {
     switch (r) {
@@ -50,6 +52,7 @@ inline const char* toString(ExitReason r) {
         case ExitReason::Velocity:     return "velocity";
         case ExitReason::Timeout:      return "timeout";
         case ExitReason::NoConstants:  return "no_constants";
+        case ExitReason::Passed:       return "passed";
     }
     return "?";
 }

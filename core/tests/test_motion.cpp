@@ -159,7 +159,7 @@ TEST(wait_until_fires_partway_through) {
     r.ctrl.setMission({
         Instr::driveSet(36, 110),
         Instr::waitUntil(12),
-        Instr::act(ActionId::MogoClamp),
+        Instr::act("mogoClamp.toggle()"),
         Instr::wait(),
     });
     // The action must fire while the robot is still short of the full 36 in.
@@ -170,7 +170,8 @@ TEST(wait_until_fires_partway_through) {
     r.run(6);
     EXPECT_TRUE(r.ctrl.status().done);
     EXPECT_NEAR(r.plant.truth().y, 36.0, 1.5);
-    EXPECT_TRUE(r.ctrl.status().lastAction == ActionId::MogoClamp);
+    EXPECT_TRUE(std::string(r.ctrl.status().lastAction) == "mogoClamp.toggle()");
+    EXPECT_TRUE(r.ctrl.status().actionCount == 1);
 }
 
 TEST(wait_until_does_not_hang_if_target_never_reached) {
@@ -317,31 +318,146 @@ TEST(skills_loop_completes) {
                 r.ctrl.pose().distanceTo(r.plant.truth()));
 }
 
-TEST(worlds_mogo_rush_runs_and_stays_on_the_field) {
-    // The real routine from autons.cpp. It is an open-loop rush with doinker
-    // timing, so the check is that it runs to completion, keeps the robot on
-    // a 12 ft field, and fires its mechanism actions.
+TEST(wait_until_during_a_turn_is_a_heading) {
+    // ez::pid_wait_until means an absolute heading while turning, not a
+    // distance. worldsMogoRush relies on this: pid_turn_set(90); pid_wait_until(2).
     Rig r;
-    const MissionDef def = missions::byName("mogo_rush", /*isBlue=*/true);
-    r.setPose(def.start);
-    r.ctrl.setMission(def.mission);
+    r.ctrl.setMission({
+        Instr::turnSet(90, 90),
+        Instr::waitUntil(45),
+        Instr::act("halfway"),
+        Instr::wait(),
+    });
+    EXPECT_TRUE(r.runToPc(3, 5));
+    EXPECT_NEAR(r.plant.truth().theta, 45.0, 6.0);  // fired as it crossed 45, not at the end
+    r.run(5);
+    EXPECT_NEAR(r.plant.truth().theta, 90.0, 3.0);
+}
 
-    int actions = 0;
-    ActionId last = ActionId::None;
-    while (!r.ctrl.status().done && r.t < 40) {
-        r.plant.step(r.ctrl.tick(r.plant.sensors(), r.dt), r.dt);
-        r.t += r.dt;
-        if (r.ctrl.status().lastAction != last) {
-            last = r.ctrl.status().lastAction;
-            ++actions;
-        }
-        EXPECT_TRUE(std::fabs(r.plant.truth().x) < 72.0);
-        EXPECT_TRUE(std::fabs(r.plant.truth().y) < 72.0);
-    }
+TEST(turn_relative_adds_to_the_last_heading_target) {
+    Rig r;
+    r.ctrl.setMission({
+        Instr::turnSet(40, 90), Instr::wait(),
+        Instr::turnRelative(30, 90), Instr::wait(),   // 40 + 30
+    });
+    r.run(6);
+    EXPECT_NEAR(r.plant.truth().theta, 70.0, 3.0);
+}
+
+TEST(turn_to_point_faces_the_point) {
+    Rig r;
+    r.ctrl.setMission({Instr::turnToPoint(24, 24, 90), Instr::wait()});
+    r.run(4);
+    EXPECT_NEAR(r.plant.truth().theta, 45.0, 3.0);  // compass bearing to (24, 24)
+
+    Rig rev;
+    rev.ctrl.setMission({Instr::turnToPoint(24, 24, 90, DriveDirection::Reverse), Instr::wait()});
+    rev.run(4);
+    EXPECT_NEAR(std::fabs(wrapDeg(rev.plant.truth().theta - (-135.0))), 0.0, 3.0);  // back faces it
+}
+
+TEST(drive_raw_is_open_loop_until_the_next_motion) {
+    // chassis.drive_set(100, 100) then a timed push, as in the corner shove.
+    Rig r;
+    r.ctrl.setMission({Instr::driveRaw(100, 100), Instr::delay(500), Instr::driveSet(0, 127), Instr::wait()});
+    EXPECT_TRUE(r.runToPc(2, 3));
+    const double pushed = r.plant.truth().y;
+    EXPECT_TRUE(pushed > 10.0);  // ~0.5 s at 100/127 of top speed
+    r.run(6);
     EXPECT_TRUE(r.ctrl.status().done);
-    EXPECT_TRUE(actions >= 10);
-    std::printf("  mogo_rush: %.2f s, %d actions, ended (%.1f, %.1f, %.0f deg)\n",
-                r.t, actions, r.plant.truth().x, r.plant.truth().y, r.plant.truth().theta);
+}
+
+TEST(wait_quick_releases_at_the_target_without_settling) {
+    Rig quick, full;
+    quick.ctrl.setMission({Instr::driveSet(24, 127), Instr::waitQuick()});
+    full.ctrl.setMission({Instr::driveSet(24, 127), Instr::wait()});
+    quick.run(5);
+    full.run(5);
+    EXPECT_TRUE(quick.ctrl.status().done);
+    EXPECT_TRUE(quick.t < full.t);  // no 90 ms small-error dwell
+}
+
+TEST(odom_reset_mid_routine_moves_only_the_estimate) {
+    Rig r;
+    r.ctrl.setMission({Instr::driveSet(12, 110), Instr::wait(), Instr::odomReset(-60, -60, 0)});
+    r.run(5);
+    // The estimate jumps to the new pose. It can drift a hair afterwards: the
+    // last drive is still live (EZ keeps holding it after the routine ends).
+    EXPECT_NEAR(r.ctrl.pose().x, -60.0, 0.5);
+    EXPECT_NEAR(r.ctrl.pose().y, -60.0, 0.5);
+    EXPECT_NEAR(r.plant.truth().y, 12.0, 1.0);  // the robot itself didn't jump
+}
+
+TEST(negative_speed_is_the_same_as_positive) {
+    // ez::pid_speed_max_set takes abs(): a "backwards" -100 swing is just 100.
+    Rig pos, neg;
+    pos.ctrl.setMission({Instr::swingSet(SwingSide::Left, 45, 100), Instr::wait()});
+    neg.ctrl.setMission({Instr::swingSet(SwingSide::Left, 45, -100), Instr::wait()});
+    pos.run(5);
+    neg.run(5);
+    EXPECT_NEAR(pos.plant.truth().theta, neg.plant.truth().theta, 1e-9);
+    EXPECT_NEAR(pos.t, neg.t, 1e-9);
+    EXPECT_NEAR(neg.plant.truth().theta, 45.0, 5.0);
+    EXPECT_TRUE(!neg.ctrl.status().interfered);
+}
+
+TEST(ez_quirk_slew_collapses_if_moving_the_wrong_way) {
+    // EZ's slew is a line in error space from min_speed at the start. If the
+    // robot is still rolling the *other* way when a slewed motion starts, it
+    // moves away from the ramp, the line extrapolates past min_speed, and the
+    // speed cap collapses toward zero. Found by the sim after a timed
+    // drive_set push; on the field the wall usually stops the robot first.
+    Rig r;
+    r.ctrl.setMission({Instr::driveRaw(127, 127), Instr::delay(800),
+                       Instr::driveSet(-10, 127, /*slew=*/true), Instr::wait(3000)});
+    EXPECT_TRUE(r.runToPc(3, 3));  // just after the reverse drive is set
+    double weakest = 1e9;
+    for (int i = 0; i < 40; ++i) {
+        const WheelCmd c = r.ctrl.tick(r.plant.sensors(), r.dt);
+        r.plant.step(c, r.dt);
+        weakest = std::fmin(weakest, std::fmax(std::fabs(c.left), std::fabs(c.right)));
+    }
+    EXPECT_TRUE(weakest < 20.0);  // nowhere near the 127 a 10 in error asks for
+
+    // Same move without slew drives hard straight away.
+    Rig n;
+    n.ctrl.setMission({Instr::driveRaw(127, 127), Instr::delay(800),
+                       Instr::driveSet(-10, 127, /*slew=*/false), Instr::wait(3000)});
+    EXPECT_TRUE(n.runToPc(3, 3));
+    const WheelCmd c = n.ctrl.tick(n.plant.sensors(), n.dt);
+    EXPECT_TRUE(std::fmax(std::fabs(c.left), std::fabs(c.right)) > 120.0);
+}
+
+TEST(walls_stop_the_chassis_but_not_the_encoders) {
+    // A timed push into a wall: the robot stops, the wheels keep turning, and
+    // odometry runs off. That's why teams re-zero odom after a wall push.
+    PlantParams pp;
+    pp.walls = true;
+    Rig r(pp);
+    r.setPose({0, 50, 0});
+    r.ctrl.setMission({Instr::driveRaw(100, 100), Instr::delay(1500)});
+    r.run(3);
+    EXPECT_NEAR(r.plant.truth().y, 72.0 - 7.5, 1e-9);     // flush with the far wall
+    EXPECT_TRUE(r.plant.wallContact());
+    EXPECT_TRUE(r.ctrl.pose().y > 90.0);                   // odometry thinks it kept going
+}
+
+TEST(a_trailing_motion_without_a_wait_still_runs) {
+    // `set_drive(-30);` as the last line of an auton: the function returns but
+    // EZ's PID task keeps driving it. The robot must still get there.
+    Rig r;
+    r.ctrl.setMission({Instr::driveSet(20, 127), Instr::wait(), Instr::driveSet(-30, 127)});
+    r.run(6);
+    EXPECT_TRUE(r.ctrl.status().done);
+    EXPECT_NEAR(r.plant.truth().y, -10.0, 1.5);
+}
+
+TEST(runtime_constant_changes_apply) {
+    // slew_drive_constants_set(1_in, 127) effectively turns the launch ramp off.
+    Rig r;
+    r.ctrl.setMission({Instr::slewDriveConstants(1, 127), Instr::driveSet(24, 127, true), Instr::wait()});
+    const WheelCmd first = r.ctrl.tick(r.plant.sensors(), r.dt);
+    EXPECT_TRUE(std::fmax(std::fabs(first.left), std::fabs(first.right)) > 120.0);
 }
 
 TEST(mission_is_deterministic) {

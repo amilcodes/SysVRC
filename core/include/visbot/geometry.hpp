@@ -77,6 +77,17 @@ struct Pose {
     }
 };
 
+/// Re-express a pose from the routine's own frame (whatever odom_xyt_set
+/// declared) in field coordinates, given where that frame's start pose really
+/// sits on the field. Compass convention: headings clockwise from +y.
+inline Pose codeToField(const Pose& p, const Pose& codeStart, const Pose& fieldStart) {
+    const double phi = deg2rad(fieldStart.theta - codeStart.theta);  // clockwise
+    const double dx = p.x - codeStart.x, dy = p.y - codeStart.y;
+    return {fieldStart.x + dx * std::cos(phi) + dy * std::sin(phi),
+            fieldStart.y - dx * std::sin(phi) + dy * std::cos(phi),
+            p.theta + (fieldStart.theta - codeStart.theta)};
+}
+
 /// Left/right drive command in V5 "voltage units", -127..127, exactly what
 /// pros::Motor::move() takes on the brain.
 struct WheelCmd {
