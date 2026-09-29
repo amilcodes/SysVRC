@@ -1,0 +1,47 @@
+# @name safe_ring_side.blue
+# imported from autons.cpp:748 by tools/ez_import.py
+# bindings: isBlue=true
+
+action("intakeUnstuckActivated = true")  @750
+odom_xyt_set(0, 0, 146)                  @751  # chassis.odom_xyt_set(0, 0, (146) * sgn)
+action("intake.move(-127)")              @758
+delay(300)                               @759
+action("intake.move(127)")               @760
+pid_drive_set(-15, 127)                  @761  # set_drive(-15, 2000, 90)
+pid_wait()                               @762
+action("ChangeLBState(REST)")            @763
+action("intake.move(90)")                @768
+action("startColorUntil(1)")             @780
+pid_turn_set(90, 90)                     @802  # chassis.pid_turn_set(90 * sgn, 90)
+pid_wait()                               @803
+pid_drive_set(-30.5, 60)                 @804  # set_drive(-31 + .5, 2000, 0, 60)
+pid_wait_until(-28)                      @805
+action("mogoClamp.toggle()")             @806
+pid_wait()                               @808
+pid_turn_set(-45, 90)                    @814  # chassis.pid_turn_set((-45) * sgn, 90)
+pid_wait()                               @817
+action("stopColorUntilFunction()")       @818
+action("intake.move(127)")               @820
+action("intake.move(127)")               @821
+pid_drive_set(18, 127)                   @825  # set_drive(16.5 + 1.5)
+pid_wait()                               @828
+pid_turn_set(-5, 100)                    @830  # chassis.pid_turn_set((-5) * sgn, 100)
+pid_wait()                               @831
+action("intake.move(127)")               @832
+pid_drive_set(22, 127)                   @833  # set_drive(12 + 10)
+pid_wait()                               @834
+pid_wait()                               @844
+delay(350)                               @845
+pid_drive_set(-19, 127)                  @847  # set_drive(-28 + 9)
+action("setIntake(0)")                   @851
+pid_wait()                               @852
+pid_turn_set(55, 127)                    @854  # chassis.pid_turn_set((70 - 25 + 10) * sgn, 127)
+pid_wait()                               @859
+pid_drive_set(25, 127)                   @860  # set_drive(25, 3000, 127)
+pid_wait_until(5)                        @861
+action("intake.move(127)")               @862
+pid_wait()                               @863
+pid_turn_set(70, 100)                    @869  # chassis.pid_turn_set(70 * sgn, 100)
+pid_wait()                               @870
+pid_drive_set(40, 127)                   @871  # set_drive(40, 2000, 127)
+pid_wait()                               @873

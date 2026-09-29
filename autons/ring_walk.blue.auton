@@ -1,0 +1,74 @@
+# @name ring_walk.blue
+# imported from autons.cpp:1571 by tools/ez_import.py
+# bindings: isBlue=true
+
+odom_xyt_set(0, 0, 145)                      @1577  # chassis.odom_xyt_set(0, 0, (180 - 35) * sgn)
+action("colorFiltrationActive = false")      @1579
+action("LBState = PROPPED")                  @1583
+action("ladybrown2.set_zero_position(-27)")  @1585
+action("ChangeLBState(FULLEXTENDED)")        @1586
+delay(200)                                   @1587
+action("intake.move(-127)")                  @1588
+delay(225)                                   @1589
+pid_drive_set(-13.5, 127)                    @1591  # set_drive(-11 - 1 - 1.5, 2000, 120)
+pid_wait()                                   @1592
+action("ChangeLBState(REST)")                @1593
+pid_turn_set(90, 90)                         @1594  # chassis.pid_turn_set(90 * sgn, 90)
+pid_wait()                                   @1595
+action("callLBReset()")                      @1596
+pid_drive_set(-28.5, 127)                    @1597  # set_drive(-30.5 + 2, 2000, 80)
+pid_wait_until(-9)                           @1598  # chassis.pid_wait_until(-12 + 3)
+pid_speed_max_set(60)                        @1599
+pid_wait_until(-24)                          @1600
+action("mogoClamp.toggle()")                 @1601
+action("intake.move_voltage(12000)")         @1602
+pid_wait_until(-27.5)                        @1603  # chassis.pid_wait_until(-29.5 + 2)
+action("ChangeLBState(REST)")                @1606
+pid_turn_set(-45.5, 90)                      @1607  # chassis.pid_turn_set((-46 + 0.5) * sgn, 90)
+pid_wait()                                   @1608
+action("intake.move_voltage(12000)")         @1609
+action("intake.move_voltage(12000)")         @1610
+action("stopColorUntilFunction()")           @1611
+pid_drive_set(17.75, 127)                    @1612  # set_drive(18 - 0.25, 1500, 110)
+action("colorFiltrationActive = true")       @1613
+pid_wait_quick()                             @1614
+pid_turn_set(-15, 127)                       @1618  # chassis.pid_turn_set((-14 + 4 - 5) * sgn, 127)
+pid_wait()                                   @1619
+pid_drive_set(13, 120)                       @1620  # set_drive(15.5 - 2.5, 2000, 50, 120)
+pid_wait()                                   @1621
+pid_turn_set(-15, 120)                       @1622  # chassis.pid_turn_set(-15 * sgn, 120)
+pid_wait()                                   @1623
+pid_drive_set(-14.5, 120)                    @1624  # set_drive(-17 + 2.5, 2000, 50, 120)
+pid_wait()                                   @1625
+action("intake.move(0)")                     @1633
+pid_turn_set(50, 127)                        @1636  # chassis.pid_turn_set(50 * sgn, 127)
+pid_wait_quick()                             @1637
+pid_drive_set(16, 120)                       @1639  # set_drive(15 + 1, 2000, 50, 120)
+pid_wait_until(2)                            @1640
+action("intake.move(127)")                   @1641
+pid_wait_quick_chain()                       @1642
+pid_drive_set(-7, 127)                       @1644
+pid_wait_quick_chain()                       @1645
+pid_turn_chain_constant_set(2)               @1646
+pid_drive_chain_constant_set(2)              @1647
+pid_turn_set(90, 127)                        @1648  # chassis.pid_turn_set(90 * sgn, 127)
+pid_wait_quick_chain()                       @1649
+pid_drive_set(27, 127)                       @1650  # chassis.pid_drive_set(18 + 9, 127)
+pid_wait_quick_chain()                       @1651
+action("intake.move(127)")                   @1652
+pid_turn_set(43, 127)                        @1653  # chassis.pid_turn_set((54 - 11) * sgn, 127)
+pid_wait_quick_chain()                       @1654
+action("intake.move(127)")                   @1664
+drive_set(100, 100)                          @1667  # chassis.drive_set(80 + 20, 80 + 20)
+delay(1500)                                  @1666  # while (pros::millis() - ... < 1500)
+action("intake.move(127)")                   @1670
+pid_turn_set(45, 127)                        @1673  # chassis.pid_turn_set(45 * sgn, 127)
+delay(500)                                   @1674
+action("intake.move(127)")                   @1675
+delay(500)                                   @1676
+pid_drive_set(-53.5, 127)                    @1682  # set_drive(-53.5, 75)
+pid_wait()                                   @1683
+pid_turn_set(-135, 110)                      @1686  # chassis.pid_turn_set(-135 * sgn, 110)
+delay(250)                                   @1687
+action("ChangeLBState(EXTENDED)")            @1688
+pid_wait_quick()                             @1689

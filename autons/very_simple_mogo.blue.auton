@@ -1,0 +1,25 @@
+# @name very_simple_mogo.blue
+# imported from autons.cpp:421 by tools/ez_import.py
+# bindings: isBlue=true
+
+odom_xyt_set(0, 0, 90)                @423  # chassis.odom_xyt_set(0, 0, 90 * sgn)
+pid_drive_set(-36, 65)                @424  # set_drive(-34 - 2, 2500, 0, 65)
+pid_wait_until(28)                    @425
+action("mogoClamp.toggle()")          @426
+pid_wait()                            @427
+delay(500)                            @429
+action("intake.move_voltage(12000)")  @430
+delay(700)                            @431
+pid_turn_set(180, 127)                @432
+pid_wait()                            @433
+pid_drive_set(21, 127)                @434  # set_drive(21, 2000)
+pid_wait()                            @435
+delay(1500)                           @436
+pid_drive_set(-10, 127)               @437  # set_drive(-10, 1500)
+pid_wait()                            @438
+pid_turn_set(0, 127)                  @439
+pid_wait()                            @440
+pid_drive_set(30, 70)                 @441  # set_drive(30, 2500, 0, 70)
+pid_wait()                            @442
+delay(1000)                           @443
+action("intake.move(0)")              @444

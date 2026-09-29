@@ -1,0 +1,69 @@
+# @name ring_rush6.blue
+# imported from autons.cpp:944 by tools/ez_import.py
+# bindings: isBlue=true
+
+action("LBState = REST")                                  @950
+odom_xyt_set(-48.5, 30, -68.4)                            @951  # chassis.odom_xyt_set(-48.5, 30, -68.4 * sgn)
+action("intake.move(-127)")                               @952
+pid_drive_set(45, 127)                                    @953  # chassis.pid_drive_set(43 + 2, 127)
+action("(isBlue ? rightDoinker : leftDoinker).toggle()")  @954
+pid_wait_until(20)                                        @955
+action("intake.move(127)")                                @956
+action("startColorUntil(1)")                              @957
+pid_wait_until(41.5)                                      @958
+pid_drive_set(-19, 127)                                   @960
+pid_wait_quick_chain()                                    @961
+pid_turn_set(90, 127)                                     @962
+pid_wait()                                                @963
+pid_drive_set(-8, 127)                                    @964
+pid_wait()                                                @965
+action("(isBlue ? rightDoinker : leftDoinker).toggle()")  @966
+delay(100)                                                @967
+pid_turn_set(-55, 90)                                     @968
+pid_wait()                                                @969
+pid_drive_set(-20, 127)                                   @970
+pid_wait_until(-18)                                       @971
+action("mogoClamp.toggle()")                              @972
+pid_wait()                                                @973
+action("stopColorUntilFunction()")                        @974
+action("intake.move(127)")                                @975
+pid_turn_set(-12, 127)                                    @976
+pid_wait()                                                @977
+action("intake.move(127)")                                @978
+action("intake.move(127)")                                @979
+pid_drive_set(27, 127)                                    @980
+pid_wait_quick_chain()                                    @981
+pid_turn_set(-75, 100)                                    @983
+pid_wait()                                                @984
+action("intake.move(127)")                                @985
+pid_drive_set(40, 90)                                     @986
+pid_wait()                                                @988
+delay(500)                                                @989
+pid_turn_set(-45, 127)                                    @990
+pid_wait()                                                @991
+pid_drive_set(-17, 127)                                   @992
+pid_wait()                                                @993
+pid_turn_set(180, 100)                                    @994
+pid_wait()                                                @995
+pid_drive_set(44, 90)                                     @996
+pid_wait_until(29)                                        @997
+action("intakeLift.toggle()")                             @998
+pid_wait()                                                @999
+action("leftDoinker.toggle()")                            @1001
+pid_turn_set(-90, 127)                                    @1002
+action("ChangeLBState(PROPPED)")                          @1003
+pid_wait_until(10)                                        @1004
+action("intakeLift.toggle()")                             @1005
+pid_wait()                                                @1006
+action("leftDoinker.toggle()")                            @1007
+pid_drive_set(10, 127)                                    @1008
+pid_wait_quick_chain()                                    @1009
+pid_drive_set(-8, 127)                                    @1010
+action("intake.move(0)")                                  @1011
+action("ChangeLBState(FULLEXTENDED)")                     @1012
+pid_wait()                                                @1013
+action("ChangeLBState(REST)")                             @1014
+pid_turn_set(90, 127)                                     @1015
+pid_wait()                                                @1016
+pid_drive_set(50, 127)                                    @1017
+pid_wait_until(10)                                        @1018

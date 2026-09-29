@@ -1,0 +1,39 @@
+# @name simple_mogo.blue
+# imported from autons.cpp:448 by tools/ez_import.py
+# bindings: isBlue=true
+
+odom_xyt_set(0, 0, 34)                       @450  # chassis.odom_xyt_set(0, 0, (33 + 1) * sgn)
+action("LBState = PROPPED")                  @453
+action("ladybrown2.set_zero_position(-46)")  @454
+action("ChangeLBState(FULLEXTENDED)")        @455
+delay(650)                                   @456
+pid_drive_set(-15, 127)                      @457  # set_drive(-15, 2000)
+pid_wait()                                   @458
+action("ChangeLBState(REST)")                @459
+pid_turn_set(90, 127)                        @460  # chassis.pid_turn_set(90 * sgn, 127)
+pid_wait()                                   @461
+pid_drive_set(-31, 70)                       @462  # set_drive(-23 - 11 + 3, 2000, 0, 70)
+pid_wait_until(26)                           @463  # chassis.pid_wait_until(25 + 1)
+action("mogoClamp.toggle()")                 @464
+pid_wait()                                   @465
+action("intake.move_voltage(12000)")         @466
+pid_turn_set(180, 127)                       @467
+pid_wait()                                   @468
+pid_drive_set(21, 127)                       @469  # set_drive(21, 2000)
+pid_wait()                                   @470
+delay(500)                                   @471
+pid_drive_set(-20, 127)                      @472  # set_drive(-20, 1500)
+pid_wait()                                   @473
+pid_turn_set(43, 127)                        @474  # chassis.pid_turn_set((45 - 2) * sgn, 127)
+pid_wait()                                   @475
+pid_drive_set(30, 60)                        @476  # set_drive(30, 2000, 0, 60)
+pid_wait()                                   @477
+action("intake.move(127)")                   @478
+delay(1000)                                  @479
+pid_drive_set(15, 127)                       @480  # set_drive(15, 1500)
+pid_wait()                                   @481
+pid_drive_set(-39, 120)                      @482  # set_drive(-24 - 15, 1500, 70, 120)
+pid_wait()                                   @483
+pid_turn_set(-45, 127)                       @484  # chassis.pid_turn_set(-45 * sgn, 127)
+pid_wait()                                   @485
+action("ChangeLBState(EXTENDED)")            @486

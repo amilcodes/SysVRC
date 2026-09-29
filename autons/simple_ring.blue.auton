@@ -1,0 +1,25 @@
+# @name simple_ring.blue
+# imported from autons.cpp:394 by tools/ez_import.py
+# bindings: isBlue=true
+
+odom_xyt_set(0, 0, 90)                @396  # chassis.odom_xyt_set(0, 0, 90 * sgn)
+pid_drive_set(-36, 65)                @397  # set_drive(-34 - 2, 2500, 0, 65)
+pid_wait_until(28)                    @398
+action("mogoClamp.toggle()")          @399
+pid_wait()                            @400
+delay(500)                            @402
+action("intake.move_voltage(12000)")  @403
+delay(700)                            @404
+pid_turn_set(0, 127)                  @405
+pid_wait()                            @406
+pid_drive_set(21, 127)                @407  # set_drive(21, 2000)
+pid_wait()                            @408
+delay(1500)                           @409
+pid_drive_set(-10, 127)               @410  # set_drive(-10, 1500)
+pid_wait()                            @411
+pid_turn_set(180, 127)                @412
+pid_wait()                            @413
+pid_drive_set(30, 70)                 @414  # set_drive(30, 2500, 0, 70)
+pid_wait()                            @415
+delay(1000)                           @416
+action("intake.move(0)")              @417

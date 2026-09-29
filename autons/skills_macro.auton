@@ -1,0 +1,20 @@
+# @name skills_macro
+# imported from skills.cpp:496 by tools/ez_import.py
+# bindings: none
+
+action("colorFiltrationActive = false")      @497
+odom_xyt_set(-60.5, -13, -46)                @498  # chassis.odom_xyt_set(-60.5, -13, (-49 + 3))
+action("LBState = EXTENDED")                 @500
+action("ladybrown2.set_zero_position(-46)")  @501
+action("ChangeLBState(FULLEXTENDED)")        @502
+action("intakeUnstuckActivated = true")      @503
+action("ColorLoopActive = true")             @504
+delay(200)                                   @506
+action("intake.move(-127)")                  @507
+delay(400)                                   @508
+action("intake.move(0)")                     @509
+pid_drive_set(-19.5, 70)                     @511  # set_drive(-19.5, 1500, 0, 70)
+pid_wait_until(-16)                          @512
+action("mogoClamp.toggle()")                 @514
+pid_wait()                                   @515
+action("ChangeLBState(REST)")                @516

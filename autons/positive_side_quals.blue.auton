@@ -1,0 +1,79 @@
+# @name positive_side_quals.blue
+# imported from autons.cpp:1322 by tools/ez_import.py
+# bindings: isBlue=true
+
+odom_xyt_set(0, 0, -45)                                          @1324  # chassis.odom_xyt_set(0, 0, -45 * sgn)
+action("LBState = PROPPED")                                      @1328
+action("ladybrown2.set_zero_position(-46)")                      @1329
+action("ChangeLBState(EXTENDED)")                                @1330
+delay(600)                                                       @1332
+pid_drive_set(-13, 127)                                          @1335  # set_drive(-13, 110)
+pid_wait()                                                       @1336
+pid_turn_set(0, 80)                                              @1337  # chassis.pid_turn_set(0 * sgn, 80)
+pid_wait()                                                       @1338
+pid_drive_set(-10, 127)                                          @1339  # set_drive(-10)
+action("ChangeLBState(REST)")                                    @1342
+pid_wait()                                                       @1343
+action("mogoClamp.toggle()")                                     @1344
+pid_drive_set(-30, 127)                                          @1345  # set_drive(-30, 127)
+pid_wait_until(-28)                                              @1346
+action("mogoClamp.toggle()")                                     @1347
+pid_wait()                                                       @1348
+delay(100)                                                       @1349
+pid_turn_set(-42, 100)                                           @1351  # chassis.pid_turn_set(-42 * sgn, 100)
+delay(100)                                                       @1352
+pid_wait()                                                       @1353
+pid_drive_set(20, 127)                                           @1355  # set_drive(20, 127)
+delay(300)                                                       @1356
+action("intake.move(0)")                                         @1357
+pid_wait_until(16)                                               @1358
+action("isBlue ? rightDoinker.toggle() : leftDoinker.toggle()")  @1360
+delay(250)                                                       @1362
+pid_turn_set(65, 100)                                            @1364  # chassis.pid_turn_set(65 * sgn, 100)
+delay(100)                                                       @1365
+pid_wait()                                                       @1366
+pid_drive_set(4, 127)                                            @1372  # set_drive(4, 127)
+pid_wait()                                                       @1373
+action("isBlue ? leftDoinker.toggle() : rightDoinker.toggle()")  @1376
+delay(250)                                                       @1378
+pid_swing_set(left, 45, -100, 0)                                 @1385  # chassis.pid_swing_set(ez::LEFT_SWING, 45 * sgn, -100, 0)
+delay(100)                                                       @1386
+pid_wait()                                                       @1387
+pid_drive_set(-45, 127)                                          @1390  # set_drive(-45, 127)
+delay(100)                                                       @1391
+pid_wait_until(-43)                                              @1392
+delay(250)                                                       @1398
+pid_turn_set(-10, 100)                                           @1400  # chassis.pid_turn_set(-10 * sgn, 100)
+delay(100)                                                       @1401
+pid_wait()                                                       @1402
+action("intake.move_velocity(600)")                              @1404
+pid_swing_set(left, 200, 100, 20)                                @1411  # chassis.pid_swing_set(ez::LEFT_SWING, 200 * sgn, 100, 20)
+delay(100)                                                       @1412
+pid_wait()                                                       @1413
+pid_drive_set(30, 127)                                           @1416  # set_drive(30, 127)
+delay(100)                                                       @1417
+pid_wait_until(28)                                               @1418
+pid_turn_set(260.5, 100)                                         @1420  # chassis.pid_turn_set(260.5 * sgn, 100)
+delay(100)                                                       @1421
+pid_wait()                                                       @1422
+pid_drive_set(30.5, 127)                                         @1424  # set_drive(30.5, 127)
+delay(100)                                                       @1425
+pid_wait_until(7)                                                @1426
+action("isBlue ? leftDoinker.toggle() : rightDoinker.toggle()")  @1427
+pid_wait_until(28.5)                                             @1428
+action("intake.move(0)")                                         @1430
+pid_turn_set(340, 100)                                           @1432  # chassis.pid_turn_set(340 * sgn, 100)
+delay(200)                                                       @1433
+pid_wait()                                                       @1434
+action("mogoClamp.toggle()")                                     @1436
+pid_drive_set(15, 127)                                           @1438  # set_drive(15, 127)
+delay(100)                                                       @1439
+pid_wait_until(10)                                               @1440
+action("leftDoinker.toggle()")                                   @1442
+action("leftDoinker.toggle()")                                   @1443
+pid_turn_set(405, 100)                                           @1445  # chassis.pid_turn_set(405 * sgn, 100)
+delay(100)                                                       @1446
+pid_wait_until(403)                                              @1447  # chassis.pid_wait_until(403 * sgn)
+pid_drive_set(54, 127)                                           @1449  # set_drive(54, 127)
+delay(100)                                                       @1450
+pid_wait_until(54)                                               @1451

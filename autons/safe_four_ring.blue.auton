@@ -1,0 +1,82 @@
+# @name safe_four_ring.blue
+# imported from autons.cpp:1134 by tools/ez_import.py
+# bindings: isBlue=true
+
+action("colorFiltrationActive = true")           @1139
+action("ColorLoopActive = true")                 @1140
+odom_xyt_set(0, 0, 31)                           @1143  # chassis.odom_xyt_set(0, 0, (34 - 3) * sgn)
+action("LBState = PROPPED")                      @1147
+action("ladybrown2.set_zero_position(-46 + 5)")  @1149
+action("ChangeLBState(EXTENDED)")                @1150
+delay(200)                                       @1151
+action("intake.move(-127)")                      @1152
+delay(200)                                       @1153
+action("ChangeLBState(EXTENDED)")                @1154
+pid_drive_set(-14.5, 127)                        @1156  # set_drive(-13.5 - 1, 2000, 80)
+pid_wait()                                       @1157
+action("ChangeLBState(REST)")                    @1158
+pid_turn_set(90, 127)                            @1159  # chassis.pid_turn_set(90 * sgn, 127)
+pid_wait()                                       @1160
+action("callLBReset()")                          @1161
+pid_drive_set(-28, 127)                          @1162  # set_drive(-30 + 2, 2000, 90)
+pid_wait_until(-9)                               @1163  # chassis.pid_wait_until(-13 + 4)
+pid_speed_max_set(65)                            @1164
+pid_wait_until(-24)                              @1166  # chassis.pid_wait_until(-25 + 1)
+action("mogoClamp.toggle()")                     @1167
+pid_wait()                                       @1168
+action("intake.move_voltage(12000)")             @1169
+pid_turn_set(180, 127)                           @1170
+pid_wait()                                       @1171
+action("intake.move_voltage(12000)")             @1174
+pid_drive_set(21.5, 127)                         @1176  # set_drive(20 + 1.5, 2000, 110)
+pid_wait_quick_chain()                           @1177
+pid_drive_set(-3, 127)                           @1178
+pid_wait()                                       @1179
+action("intake.move_voltage(12000)")             @1180
+pid_turn_set(125, 95)                            @1183  # chassis.pid_turn_set((130 - 5) * sgn, 90 + 5)
+pid_wait()                                       @1184
+pid_drive_set(44, 127, false)                    @1189  # chassis.pid_drive_set(40 + 4, 127, false, false)
+pid_wait_quick_chain()                           @1190
+action("intakeUnstuckActivated = false")         @1191
+drive_set(65, 65)                                @1194
+delay(1300)                                      @1193  # while (pros::millis() - ... < 1300)
+action("intakeUnstuckActivated = true")          @1197
+pid_turn_set(115, 90)                            @1205  # chassis.pid_turn_set(115 * sgn, 90)
+delay(750)                                       @1206
+pid_turn_set(125, 95)                            @1207  # chassis.pid_turn_set((130 - 5) * sgn, 90 + 5)
+pid_wait()                                       @1208
+delay(250)                                       @1209
+pid_drive_set(-5, 127)                           @1211  # set_drive(-5)
+pid_wait()                                       @1212
+pid_turn_set(-43, 95)                            @1219  # chassis.pid_turn_set((-43) * sgn, 95)
+pid_wait_quick_chain()                           @1220
+pid_drive_set(-43.5, 127)                        @1222  # set_drive(-47 + 2.5 + 1)
+pid_wait_until(-40.5)                            @1223  # chassis.pid_wait_until(-44 + 2.5 + 1)
+pid_drive_set(3, 127)                            @1224  # set_drive(3, 2000, 110)
+action("ChangeLBState(EXTENDED)")                @1226
+action("intake.move(0)")                         @1227
+pid_wait()                                       @1228
+delay(20000)                                     @1232
+pid_drive_set(-46.25, 127)                       @1238  # set_drive(-16.5 - 28.75 - 1)
+pid_wait_quick()                                 @1239
+action("intakeUnstuckActivated = true")          @1240
+pid_turn_set(43, 90)                             @1242  # chassis.pid_turn_set(isBlue ? (35 + 8) : -35, 90)
+pid_wait()                                       @1243
+pid_drive_set(43, 127)                           @1245  # set_drive(51 - 8)
+pid_wait_until(15)                               @1246
+action("intakeUnstuckActivated = false")         @1247
+pid_speed_max_set(50)                            @1249
+action("intakeLift.toggle()")                    @1250
+pid_wait_quick()                                 @1251
+action("intakeLift.toggle()")                    @1252
+delay(250)                                       @1256
+action("intakeUnstuckActivated = true")          @1258
+pid_drive_set(-25, 127)                          @1260  # set_drive(-20 - 5, 1500, 127)
+pid_wait_quick_chain()                           @1261
+pid_turn_set(-40, 90)                            @1262  # chassis.pid_turn_set(-40 * sgn, 90)
+pid_wait_quick_chain()                           @1263
+pid_drive_set(12, 127)                           @1264  # set_drive(12, 2000, 110)
+pid_wait_until(5)                                @1265
+action("ChangeLBState(EXTENDED)")                @1266
+action("intake.move(0)")                         @1267
+pid_wait()                                       @1268

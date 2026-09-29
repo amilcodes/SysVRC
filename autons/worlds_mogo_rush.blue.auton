@@ -1,0 +1,95 @@
+# @name worlds_mogo_rush.blue
+# imported from autons.cpp:1965 by tools/ez_import.py
+# bindings: isBlue=true
+
+action("colorFiltrationActive = false")      @1969
+action("LBState = PROPPED")                  @1973
+action("ladybrown2.set_zero_position(-25)")  @1974
+action("ChangeLBState(SEMIEXTENDED)")        @1975
+odom_xyt_set(0, 0, -89)                      @1976  # chassis.odom_xyt_set(0, 0, (-89) * sgn)
+pid_drive_set(36, 127)                       @1977  # set_drive(32 + 4, 2500, 126, 127)
+delay(100)                                   @1978
+action("intake.move(-127)")                  @1979
+action("startColorUntil(1)")                 @1980
+pid_wait_until(6)                            @1984
+action("rightDoinker.toggle()")              @1986
+delay(150)                                   @1990
+action("intake.move(0)")                     @1991
+pid_wait_until(30.5)                         @1992  # chassis.pid_wait_until(27 + 3.5)
+action("rightDoinker.toggle()")              @1994
+pid_wait_until(34.5)                         @1998  # chassis.pid_wait_until(30.5 + 4)
+pid_drive_set(-12, 127)                      @2002  # set_drive(-12, 1500, 120)
+pid_wait_until(-9)                           @2003
+action("rightDoinker.toggle()")              @2005
+pid_wait()                                   @2009
+delay(250)                                   @2010
+pid_drive_set(-12, 127)                      @2011  # set_drive(-7 - 5)
+pid_wait()                                   @2012
+action("rightDoinker.toggle()")              @2014
+pid_turn_set(-57, 90)                        @2020  # chassis.pid_turn_set((-57) * sgn, 90)
+pid_wait()                                   @2021
+action("intake.move(127)")                   @2022
+pid_drive_set(18, 127)                       @2023  # set_drive(17 - 1 + 2)
+pid_wait_until(16)                           @2024
+action("intake.move(100)")                   @2025
+pid_drive_set(-2, 127)                       @2026  # set_drive(-2, 127)
+pid_wait()                                   @2027
+action("intake.move(85)")                    @2028
+pid_turn_set(90, 90)                         @2029  # chassis.pid_turn_set(90 * sgn, 90)
+pid_wait_until(2)                            @2030
+action("intake.move(45 + 10)")               @2032
+pid_wait()                                   @2033
+pid_drive_set(-12, 80)                       @2034  # set_drive(-17 + 5, 2000, 0, 80)
+pid_wait_until(-7)                           @2035
+pid_speed_max_set(70)                        @2036
+pid_wait_until(-8)                           @2037  # chassis.pid_wait_until(-10 + 2)
+action("mogoClamp.toggle()")                 @2038
+action("intake.move(127)")                   @2039
+action("stopColorUntilFunction()")           @2040
+pid_wait_until(-11)                          @2041
+pid_drive_chain_constant_set(2)              @2042
+pid_drive_set(38, 127)                       @2043
+action("intake.move(127)")                   @2044
+pid_wait_until(6)                            @2045
+action("mogoClamp.toggle()")                 @2046
+action("intake.move(-127)")                  @2047
+pid_wait_quick_chain()                       @2048
+pid_turn_set(125, 90)                        @2051  # chassis.pid_turn_set((127 - 2) * sgn, 90)
+pid_wait()                                   @2052
+pid_drive_set(-38, 90)                       @2053  # set_drive(-35 - 3, 2000, 65, 90)
+pid_wait_until(-10)                          @2054
+pid_speed_max_set(60)                        @2055
+pid_wait_until(-33)                          @2056
+action("mogoClamp.toggle()")                 @2057
+pid_wait()                                   @2058
+action("intake.move(127)")                   @2059
+pid_turn_set(138.5, 90)                      @2061  # chassis.pid_turn_set((135.5 + 3) * sgn, 90)
+pid_wait_quick_chain()                       @2062
+action("intake.move(127)")                   @2063
+pid_drive_set(30, 127)                       @2064  # set_drive(30)
+pid_wait_quick_chain()                       @2065
+action("intake.move(127)")                   @2066
+action("intakeUnstuckActivated = false")     @2067
+drive_set(100, 100)                          @2070
+delay(1000)                                  @2069  # while (pros::millis() - ... < 1000)
+pid_drive_set(-10, 127)                      @2075
+action("intake.move(127)")                   @2076
+pid_wait_until(-8)                           @2077
+pid_drive_set(5, 127)                        @2078
+pid_wait_quick_chain()                       @2079
+pid_drive_set(-5, 127)                       @2080
+pid_wait_quick_chain()                       @2081
+action("intakeUnstuckActivated = true")      @2082
+pid_turn_set(252, 127)                       @2083  # chassis.pid_turn_set((256 - 4) * sgn, 127)
+pid_wait()                                   @2084
+pid_drive_set(39, 127)                       @2085  # set_drive(39)
+pid_wait_until(5)                            @2086
+action("stopColorUntilFunction()")           @2087
+action("mogoClamp.toggle()")                 @2088
+action("intake.move(127)")                   @2089
+pid_wait_until(37)                           @2091
+pid_turn_set(-132, 90)                       @2092  # chassis.pid_turn_set((-135 + 3) * sgn, 90)
+pid_wait()                                   @2093
+action("ChangeLBState(EXTENDED)")            @2094
+pid_drive_set(3, 127)                        @2095  # set_drive(3)
+pid_wait()                                   @2096

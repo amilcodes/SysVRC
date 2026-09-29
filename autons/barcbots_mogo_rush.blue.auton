@@ -1,0 +1,64 @@
+# @name barcbots_mogo_rush.blue
+# imported from autons.cpp:1703 by tools/ez_import.py
+# bindings: isBlue=true
+
+action("LBState = PROPPED")                  @1709
+action("ladybrown2.set_zero_position(-25)")  @1710
+action("ChangeLBState(SEMIEXTENDED)")        @1711
+odom_xyt_set(0, 0, -113)                     @1712  # chassis.odom_xyt_set(0, 0, (-113) * sgn)
+action("ChangeLBState(SEMIEXTENDED)")        @1715
+action("intake.move(127)")                   @1716
+pid_drive_set(34.5, 127)                     @1717  # set_drive(33 + 1.5, 2500, 127, 127)
+action("startColorUntil(1)")                 @1720
+action("intake.move(127)")                   @1722
+action("rightDoinker.toggle()")              @1723
+pid_wait_until(12)                           @1726
+action("leftDoinker.toggle()")               @1727
+pid_wait_until(30)                           @1729  # chassis.pid_wait_until(28.5 + 1.5)
+action("leftDoinker.toggle()")               @1730
+pid_wait_until(33)                           @1732  # chassis.pid_wait_until(33 - 1.5 + 1.5)
+pid_drive_set(-19.5, 127)                    @1739  # set_drive(-18 - 1.5, 1500, 120)
+pid_wait()                                   @1741
+action("leftDoinker.toggle()")               @1742
+delay(300)                                   @1743
+pid_drive_set(-7, 127)                       @1744  # set_drive(-7, 1200, 111, 127)
+pid_wait_until(-3)                           @1745
+action("rightDoinker.toggle()")              @1746
+pid_wait_until(-5)                           @1747
+action("intake.move(0)")                     @1748
+pid_wait()                                   @1749
+action("leftDoinker.toggle()")               @1750
+pid_turn_set(130, 90)                        @1754  # chassis.pid_turn_set((135 - 5) * sgn, 90)
+pid_wait()                                   @1755
+pid_drive_set(-22, 127)                      @1756  # set_drive(-22, 2000)
+pid_wait_until(-20)                          @1757  # chassis.pid_wait_until(-22 + 2)
+action("mogoClamp.toggle()")                 @1758
+action("intake.move(127)")                   @1759
+pid_wait()                                   @1760
+delay(200)                                   @1761
+action("mogoClamp.toggle()")                 @1762
+action("stopColorUntilFunction()")           @1763
+pid_turn_set(-35, 90)                        @1771  # chassis.pid_turn_set((-20 - 15) * sgn, 90)
+pid_wait()                                   @1772
+pid_drive_set(-33, 127)                      @1773  # set_drive(-30 - 3, 2000, 65, 127)
+pid_wait_until(-20)                          @1774
+action("mogoClamp.toggle()")                 @1775
+pid_wait()                                   @1776
+pid_turn_set(120, 90)                        @1779  # chassis.pid_turn_set((120) * sgn, 90)
+pid_wait()                                   @1780
+pid_drive_set(30, 127)                       @1785  # set_drive(30)
+pid_wait_quick_chain()                       @1786
+drive_set(127, 127)                          @1788  # setDrive(127, 127)
+drive_set(127, 127)                          @1791
+delay(700)                                   @1790  # while (pros::millis() - ... < 700)
+pid_drive_set(-10, 127)                      @1796
+pid_wait_until(-8)                           @1797
+pid_turn_set(256, 127)                       @1798  # chassis.pid_turn_set(256 * sgn, 127)
+pid_wait()                                   @1799
+pid_drive_set(42, 127)                       @1800  # set_drive(42)
+pid_wait()                                   @1801
+pid_turn_set(-140, 90)                       @1802  # chassis.pid_turn_set((-135 - 5) * sgn, 90)
+pid_wait()                                   @1803
+action("ChangeLBState(EXTENDED)")            @1804
+pid_drive_set(2, 127)                        @1805  # set_drive(2)
+pid_wait()                                   @1806

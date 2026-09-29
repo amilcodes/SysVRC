@@ -1,0 +1,51 @@
+# @name mogo_side.blue
+# imported from autons.cpp:895 by tools/ez_import.py
+# bindings: isBlue=true
+# 3 line(s) could not be imported; search for NOT IMPORTED
+
+odom_xyt_set(50, -36, 114.3)                               @896  # chassis.odom_xyt_set(50_in, -36_in, 114.3_deg)
+pid_drive_set(-18.5, 127)                                  @897  # chassis.pid_drive_set(-(19.5 - 1), 127)
+pid_wait_until(17)                                         @898
+action("mogoClamp.toggle()")                               @899
+pid_wait()                                                 @900
+action("setIntake(127)")                                   @901
+pid_wait()                                                 @902
+pid_turn_set(307.8, 127)                                   @903
+pid_wait()                                                 @904
+pid_drive_set(28.5, 127)                                   @905  # chassis.pid_drive_set((29.5 - 1), 127)
+pid_wait_until(15)                                         @906
+action("(isBlue ? leftDoinker : rightDoinker).toggle()")   @907
+pid_wait()                                                 @908
+pid_turn_set(337.8, 127)                                   @909  # chassis.pid_turn_set(337.75_deg, 127)
+pid_wait()                                                 @910
+action("(!isBlue ? leftDoinker : rightDoinker).toggle()")  @911
+pid_drive_set(-30, 127)                                    @912
+pid_wait()                                                 @913
+pid_turn_relative_set(30, 127)                             @914  # chassis.pid_turn_relative_set(30_deg, 127)
+pid_wait()                                                 @915
+pid_swing_set(left, 180, 90, 45)                           @916  # chassis.pid_swing_set((!isBlue ? ez::RIGHT_SWING : ez::LEFT_SWING), 180_deg, 90, 45)
+pid_wait()                                                 @917
+pid_turn_to_point(24, -48, 127)                            @918  # chassis.pid_turn_set({24, -48}, fwd, 127)
+pid_wait()                                                 @919
+# NOT IMPORTED: argument depends on the robot at runtime (call to ez::util::distance_to_point()): chassis.pid_drive_set(ez::util::distance_to_point({chassis.odom_x_get(), chassis.odom_y_get()}, {24, -48}) - 1, 127)  @920
+pid_wait()                                                 @921
+pid_turn_to_point(66, 66, 127)                             @922  # chassis.pid_turn_set({66, 66}, fwd, 127)
+pid_wait()                                                 @923
+# NOT IMPORTED: argument depends on the robot at runtime (call to ez::util::distance_to_point()): chassis.pid_drive_set(ez::util::distance_to_point({chassis.odom_x_get(), chassis.odom_y_get()}, {66, -66}) - 1, 127)  @924
+action("ChangeLBState(PROPPED)")                           @925
+pid_wait()                                                 @926
+delay(500)                                                 @927
+action("setIntake(0)")                                     @928
+pid_drive_set(-20, 127)                                    @929
+pid_wait()                                                 @930
+pid_turn_to_point(6, -66, 127)                             @931  # chassis.pid_turn_set({6, -66}, fwd, 127)
+pid_wait()                                                 @932
+# NOT IMPORTED: argument depends on the robot at runtime (call to ez::util::distance_to_point()): chassis.pid_drive_set(ez::util::distance_to_point({chassis.odom_x_get(), chassis.odom_y_get()}, {6, -66}) - 2, 127)  @933
+pid_wait_quick()                                           @934
+pid_turn_to_point(0, -72, 127)                             @935  # chassis.pid_turn_set({0, -72}, fwd, 127)
+pid_wait_quick_chain()                                     @936
+pid_drive_set(2, 127)                                      @937
+pid_wait_quick()                                           @938
+action("ChangeLBAuton(EXTENDED)")                          @939
+delay(200)                                                 @940
+action("ChangeLBAuton(REST)")                              @941

@@ -1,0 +1,75 @@
+# @name state_solo_awp_center_get.blue
+# imported from autons.cpp:1458 by tools/ez_import.py
+# bindings: isBlue=true
+
+odom_xyt_set(0, 0, 146.3)                         @1464  # chassis.odom_xyt_set(0, 0, (180 - 34 + .3) * sgn)
+action("LBState = PROPPED")                       @1468
+action("ladybrown2.set_zero_position(-46 + 20)")  @1470
+action("ChangeLBState(EXTENDED)")                 @1471
+delay(200)                                        @1472
+action("intake.move(-127)")                       @1473
+delay(200)                                        @1474
+pid_drive_set(-13.5, 127)                         @1476  # set_drive(-11 - 1 - 1.5, 2000, 80)
+pid_wait()                                        @1477
+action("ChangeLBState(REST)")                     @1478
+pid_turn_set(90, 90)                              @1479  # chassis.pid_turn_set(90 * sgn, 90)
+pid_wait()                                        @1480
+action("callLBReset()")                           @1481
+pid_drive_set(-28.5, 127)                         @1482  # set_drive(-30.5 + 2, 2000, 90)
+pid_wait_until(-15)                               @1483
+pid_speed_max_set(-60)                            @1484
+pid_wait_until(-24)                               @1485
+action("mogoClamp.toggle()")                      @1486
+pid_wait_until(-27.5)                             @1487  # chassis.pid_wait_until(-29.5 + 2)
+action("intake.move(127)")                        @1488
+action("intake.move_voltage(12000)")              @1491
+pid_turn_set(-52, 90)                             @1492  # chassis.pid_turn_set(-52 * sgn, 90)
+pid_wait_quick_chain()                            @1493
+action("intake.move_voltage(12000)")              @1494
+pid_drive_set(22, 127)                            @1495  # set_drive(20 + 2, 1500, 110)
+pid_wait_quick()                                  @1496
+action("intake.move(127)")                        @1513
+pid_turn_set(-315, 90)                            @1514  # chassis.pid_turn_set(-315 * sgn, 90)
+pid_wait()                                        @1515
+pid_drive_set(12, 127)                            @1516  # set_drive(20 - 8, 3000)
+pid_wait()                                        @1517
+pid_turn_set(270, 127)                            @1519
+pid_wait_quick()                                  @1520
+pid_drive_set(28, 90)                             @1521  # set_drive(24 + 4, 2000, 50, 90)
+pid_wait_quick_chain()                            @1522
+action("intake.move(127)")                        @1528
+pid_turn_set(45, 90)                              @1529  # chassis.pid_turn_set(45 * sgn, 90)
+pid_wait_quick_chain()                            @1530
+pid_drive_set(27, 127)                            @1531  # set_drive(24 + 3, 127)
+pid_wait_quick_chain()                            @1532
+delay(200)                                        @1533
+pid_drive_set(-24, 127)                           @1534  # set_drive(-24, 110)
+pid_wait()                                        @1535
+pid_turn_set(184, 110)                            @1538  # chassis.pid_turn_set(180 + 4, 110)
+pid_wait_quick()                                  @1539
+action("mogoClamp.toggle()")                      @1541
+action("startColorUntil(2)")                      @1542
+pid_drive_set(67, 85)                             @1543  # set_drive(66 + 1, 3000, 0, 85)
+pid_wait()                                        @1544
+pid_turn_set(270, 115)                            @1545
+pid_wait_quick_chain()                            @1546
+pid_drive_set(-23, 90)                            @1547  # set_drive(-24 + 1, 200, 0, 90)
+pid_wait()                                        @1548
+action("mogoClamp.toggle()")                      @1549
+action("stopColorUntilFunction()")                @1550
+action("intake.move(127)")                        @1551
+pid_turn_set(180, 70)                             @1552
+pid_wait_quick_chain()                            @1553
+action("stopColorUntilFunction()")                @1554
+action("intake.move(127)")                        @1555
+pid_drive_set(24, 127)                            @1556  # set_drive(24, 3000)
+pid_wait_quick()                                  @1557
+pid_drive_set(-21, 127)                           @1558  # set_drive(-26 + 5, 3000, 0, 127)
+pid_wait_quick_chain()                            @1559
+pid_turn_set(-30, 90)                             @1560  # chassis.pid_turn_set(-30 * sgn, 90)
+pid_wait()                                        @1561
+action("leftDoinker.toggle()")                    @1562
+action("rightDoinker.toggle()")                   @1563
+pid_drive_set(20, 127)                            @1564  # set_drive(20)
+pid_wait_quick_chain()                            @1565
+pid_drive_set(-30, 127)                           @1566  # set_drive(-30)

@@ -1,0 +1,279 @@
+# @name skills
+# imported from skills.cpp:6 by tools/ez_import.py
+# bindings: none
+# 2 line(s) could not be imported; search for NOT IMPORTED
+
+odom_look_ahead_set(10)                                     @7
+action("intake.set_brake_mode(pros::E_MOTOR_BRAKE_COAST)")  @9
+odom_xyt_set(-60.5, -13, -46)                               @11  # chassis.odom_xyt_set(-60.5, -13, (-46))
+action("intakeUnstuckActivated = true")                     @17
+action("ColorLoopActive = false")                           @18
+action("colorFiltrationActive = false")                     @19
+action("intake.move(0)")                                    @24
+pid_drive_set(-19, 70)                                      @26  # set_drive(-19.5 + 0.5, 1500, 0, 70)
+pid_wait_until(-16)                                         @27
+action("mogoClamp.toggle()")                                @34
+pid_wait()                                                  @35
+action("ChangeLBState(REST)")                               @36
+action("setIntake(127)")                                    @38
+action("intake.move(127)")                                  @39
+pid_turn_set(90, 90)                                        @40
+pid_wait()                                                  @41
+pid_drive_set(16.5, 110)                                    @43  # chassis.pid_drive_set(16 + 0.5, 110)
+pid_wait()                                                  @44
+pid_turn_set(115.5, 90)                                     @45
+pid_wait()                                                  @46
+pid_drive_set(56, 127)                                      @47  # chassis.pid_drive_set(79 - 25 + 2, 127)
+pid_wait_until(30)                                          @48
+action("intake.move(100)")                                  @49
+action("ChangeLBState(PROPPED)")                            @50
+pid_wait()                                                  @51
+action("intake.move_voltage(12000)")                        @52
+pid_turn_set(105, 90)                                       @53  # chassis.pid_turn_set(103 + 2, 90)
+pid_wait()                                                  @54
+action("intake.move_voltage(12000)")                        @55
+pid_drive_set(-26.75, 110)                                  @56  # chassis.pid_drive_set(-43 + 17.25 - 1, 110)
+pid_wait()                                                  @57
+pid_turn_set(180, 90)                                       @58
+pid_wait()                                                  @59
+action("setIntake(0)")                                      @60
+action("ChangeLBState(SEMIEXTENDED)")                       @61
+pid_drive_set(34, 70, false)                                @63  # chassis.pid_drive_set(14 + 20, 70, false, false)
+pid_wait_until(5)                                           @64
+pid_speed_max_set(55)                                       @65
+action("intake.move(127)")                                  @66
+pid_wait_until(12)                                          @67
+action("ChangeLBState(EXTENDED)")                           @71
+drive_set(127, 127)                                         @72
+delay(350)                                                  @73
+pid_drive_set(-15.35, 127)                                  @75  # set_drive(-15 - 0.35)
+pid_wait()                                                  @76
+action("ChangeLBState(REST)")                               @77
+pid_turn_set(-88.9, 90)                                     @79  # chassis.pid_turn_set(-89.9 + 1, 90)
+action("setIntake(127)")                                    @80
+pid_wait()                                                  @81
+action("intake.move_voltage(12000)")                        @82
+action("callLBReset()")                                     @86
+pid_drive_set(60, 70)                                       @88  # set_drive(58.5 + 1.5, 3000, 0, 70)
+pid_wait_until(29)                                          @89
+pid_speed_max_set(55)                                       @90
+pid_wait()                                                  @91
+action("setIntake(127)")                                    @92
+pid_turn_set(140, 60)                                       @93  # chassis.pid_turn_set(140 - 10 + 10, 60)
+pid_wait_quick_chain()                                      @94
+action("setIntake(127)")                                    @95
+pid_drive_set(13.5, 120)                                    @96  # set_drive(13.5 + 2 - 2, 1500, 75, 120)
+pid_wait_quick_chain()                                      @97
+pid_turn_set(70, 55)                                        @98
+pid_wait()                                                  @99
+action("setIntake(127)")                                    @100
+pid_drive_set(-18.5, 70)                                    @102  # set_drive(-17 - 1.5, 750, 0, 70)
+pid_wait()                                                  @103
+action("setIntake(0)")                                      @105
+action("mogoClamp.toggle()")                                @106
+pid_drive_set(9.5, 120)                                     @108  # set_drive(9 + 0.5, 1500, 60, 120)
+pid_wait()                                                  @109
+pid_turn_set(181, 90)                                       @110
+pid_wait()                                                  @111
+action("setIntake(0)")                                      @112
+pid_drive_set(-85, 127)                                     @115  # set_drive(-84 - 1, 110)
+pid_wait_until(-10)                                         @116
+# NOT IMPORTED: can't evaluate if-condition (leftAlignmentSensor); imported the if-branch: if (leftAlignmentSensor.get_confidence() > 10)  @120
+pid_wait_until(-50)                                         @124
+pid_speed_max_set(55)                                       @127
+pid_wait_until(-81)                                         @128
+action("mogoClamp.toggle()")                                @129
+pid_wait()                                                  @130
+pid_turn_set(90, 127)                                       @137
+pid_wait()                                                  @138
+action("setIntake(127)")                                    @139
+action("callLBReset()")                                     @140
+pid_drive_set(21, 110)                                      @142  # chassis.pid_drive_set(20 + 1, 110)
+pid_wait()                                                  @143
+pid_turn_set(64.5, 90)                                      @144  # chassis.pid_turn_set(63.5 + 1, 90)
+pid_wait()                                                  @145
+pid_drive_set(79, 110)                                      @146  # chassis.pid_drive_set(78 + 1, 110)
+pid_wait_until(35)                                          @147
+pid_speed_max_set(45)                                       @148
+pid_wait_until(71)                                          @149
+action("intake.move(100)")                                  @150
+action("ChangeLBState(PROPPED)")                            @151
+pid_wait()                                                  @152
+pid_turn_set(70, 90)                                        @153
+pid_wait()                                                  @154
+pid_drive_set(-46, 110)                                     @155  # chassis.pid_drive_set(-46.5 + 0.5, 110)
+pid_wait()                                                  @156
+action("setIntake(0)")                                      @157
+pid_turn_set(0, 90)                                         @158
+pid_wait()                                                  @159
+action("ChangeLBState(SEMIEXTENDED)")                       @160
+action("ColorLoopActive = true")                            @162
+action("colorFiltrationActive = false")                     @163
+action("startColorUntil(1)")                                @164
+pid_drive_set(27, 70, false)                                @165  # chassis.pid_drive_set(17 + 10, 70, false, false)
+pid_wait_until(5)                                           @166
+pid_speed_max_set(55)                                       @167
+action("intake.move(100)")                                  @168
+pid_wait_until(15.5)                                        @170
+action("ChangeLBState(EXTENDED)")                           @172
+drive_set(127, 127)                                         @174
+delay(450)                                                  @175
+pid_drive_set(-15, 127)                                     @176  # set_drive(-15, 700)
+pid_wait_until(-11)                                         @177
+action("ChangeLBState(PROPPED)")                            @178
+pid_wait()                                                  @179
+delay(100)                                                  @180
+pid_drive_set(17, 70, false)                                @181  # chassis.pid_drive_set(17, 70, false, false)
+action("stopColorUntilFunction()")                          @182
+pid_wait_until(2)                                           @183
+pid_speed_max_set(55)                                       @184
+action("setIntake(127)")                                    @185
+pid_wait_until(13)                                          @186
+action("setIntake(0)")                                      @187
+action("ChangeLBState(EXTENDED)")                           @188
+pid_wait()                                                  @189
+drive_set(110, 110)                                         @190  # setDrive(110, 110)
+drive_set(110, 110)                                         @193
+delay(250)                                                  @192  # while (pros::millis() - ... < 250)
+pid_turn_set(0, 90)                                         @198
+pid_wait()                                                  @199
+pid_drive_set(-14.5, 127)                                   @201  # set_drive(-13.5 - 1, 3000)
+pid_wait()                                                  @202
+action("ChangeLBState(REST)")                               @203
+action("setIntake(127)")                                    @204
+pid_turn_set(-89, 127)                                      @205  # chassis.pid_turn_set(-90 + 1, 127)
+pid_wait()                                                  @206
+# NOT IMPORTED: can't evaluate if-condition (rightAlignmentSensor); imported the if-branch: if (rightAlignmentSensor.get_confidence() > 10)  @213
+action("intake.move_voltage(12000)")                        @217
+action("stopColorUntilFunction()")                          @218
+pid_drive_set(57, 70)                                       @222  # set_drive(57, 2000, 0, 70)
+action("callLBReset()")                                     @224
+pid_wait_until(26)                                          @225
+pid_drive_set(32.3, 55)                                     @227  # set_drive(28.3 + 3 + 1, 2500, 0, 55)
+pid_wait()                                                  @228
+delay(100)                                                  @229
+pid_turn_set(40, 70)                                        @231
+pid_wait_quick_chain()                                      @232
+pid_drive_set(11.5, 120)                                    @233  # set_drive(13.5 - 2, 1500, 75, 120)
+pid_wait_quick_chain()                                      @234
+pid_turn_set(117, 55)                                       @236  # chassis.pid_turn_set(112 + 5, 100 - 45)
+pid_wait_quick_chain()                                      @237
+pid_drive_set(-16, 60)                                      @239  # set_drive(-13 - 3, 1000, 0, 60)
+pid_wait()                                                  @240
+action("callLBReset()")                                     @241
+action("intake.move(0)")                                    @245
+action("mogoClamp.toggle()")                                @246
+action("ColorLoopActive = true")                            @248
+pid_turn_set(136.5, 90)                                     @253
+pid_wait()                                                  @254
+action("startColorUntil(1)")                                @255
+action("intake.move(0)")                                    @256
+pid_drive_set(82, 127)                                      @257  # set_drive(83 - 1, 3000, 80, 127)
+pid_wait_until(40)                                          @258
+pid_speed_max_set(80)                                       @259
+action("intake.move(0)")                                    @260
+pid_wait_until(67)                                          @261  # chassis.pid_wait_until(62 + 5)
+action("intake.move(105)")                                  @263
+pid_wait()                                                  @264
+pid_turn_set(45, 90)                                        @267
+pid_wait()                                                  @268
+pid_drive_set(28.5, 75)                                     @269  # set_drive(31.5 - 3, 2000, 0, 75)
+pid_wait_until(4)                                           @270
+action("stopColorUntilFunction()")                          @271
+action("intake.move(0)")                                    @272
+pid_wait_until(27)                                          @273  # chassis.pid_wait_until(25 + 2)
+action("ChangeLBState(PROPPED)")                            @274
+action("stopColorUntilFunction()")                          @275
+pid_wait()                                                  @277
+action("intake.move_voltage(12000)")                        @278
+delay(350)                                                  @279
+action("setIntake(0)")                                      @280
+action("ChangeLBState(SEMIEXTENDED)")                       @281
+delay(100)                                                  @282
+action("startColorUntil(1)")                                @283
+action("intake.move(110)")                                  @284
+pid_drive_set(9, 110)                                       @285  # chassis.pid_drive_set(6 + 3, 110)
+pid_wait()                                                  @286
+pid_turn_set(-40, 90)                                       @290  # chassis.pid_turn_set(-45 + 7 - 2, 90)
+pid_wait()                                                  @291
+pid_drive_set(-35, 2000)                                    @292
+pid_wait_until(-14)                                         @294
+pid_speed_max_set(70)                                       @295
+pid_wait_until(-30)                                         @296
+action("mogoClamp.toggle()")                                @297
+pid_wait()                                                  @304
+action("stopColorUntilFunction()")                          @305
+pid_turn_set(90, 90)                                        @306
+pid_wait()                                                  @307
+action("intake.move(127)")                                  @308
+pid_drive_set(15, 70, false)                                @309  # chassis.pid_drive_set(15, 70, false, false)
+pid_wait_until(5)                                           @310
+pid_speed_max_set(50)                                       @311
+pid_wait()                                                  @312
+pid_turn_set(90, 90)                                        @320
+pid_wait()                                                  @321
+action("ChangeLBState(FULLEXTENDED)")                       @322
+delay(55)                                                   @323
+pid_drive_set(-16, 1500, false)                             @324  # chassis.pid_drive_set(-16, 1500, false, false)
+pid_wait()                                                  @325
+action("ChangeLBState(REST)")                               @326
+pid_turn_set(-135, 90)                                      @327
+pid_wait()                                                  @328
+pid_odom_set(24.2, -23.13, 110)                             @330  # chassis.pid_odom_set({{23.2 + 1, -24.13 + 1}, fwd, 110})
+pid_wait()                                                  @331
+pid_turn_set(131, 60)                                       @334
+pid_wait()                                                  @335
+action("intake.move_voltage(12000)")                        @336
+action("colorFiltrationActive = true")                      @337
+pid_drive_set(27, 127)                                      @338  # set_drive(29 - 2)
+pid_wait()                                                  @339
+pid_turn_set(95, 75)                                        @340
+pid_wait_quick_chain()                                      @341
+pid_drive_set(11, 110)                                      @342
+pid_wait_quick_chain()                                      @343
+pid_turn_set(80, 90)                                        @344
+pid_wait_quick_chain()                                      @345
+action("intake.move(127)")                                  @350
+pid_drive_set(-35, 110)                                     @351
+pid_wait()                                                  @352
+pid_turn_set(103, 110)                                      @353
+pid_wait_quick_chain()                                      @354
+action("rightDoinker.toggle()")                             @355
+pid_drive_set(29, 127)                                      @357  # set_drive(30 - 1)
+pid_wait_quick_chain()                                      @358
+pid_turn_set(-45, 110, ccw)                                 @365  # chassis.pid_turn_set(-75 + 30, 110)
+pid_wait()                                                  @366
+action("intake.move(0)")                                    @368
+pid_drive_set(-9, 127)                                      @374  # set_drive(-12 + 3)
+pid_wait_until(-1)                                          @375
+action("mogoClamp.toggle()")                                @376
+pid_wait()                                                  @377
+action("rightDoinker.toggle()")                             @380
+pid_drive_set(16.5, 127)                                    @381  # set_drive(15 + 1.5)
+pid_wait_quick_chain()                                      @382
+pid_turn_set(16.5, 110)                                     @383  # chassis.pid_turn_set(15 + 1.5, 110)
+pid_wait_quick_chain()                                      @384
+action("intake.move(127)")                                  @385
+slew_drive_constants_set(1, 127)                            @390  # chassis.slew_drive_constants_set(1_in, 127)
+pid_drive_set(1000, 127)                                    @392  # chassis.pid_drive_set(1000, 127, true, true)
+pid_wait_until(80)                                          @393
+drive_set(107, 107)                                         @394  # setDrive(127 - 20, 127 - 20)
+delay(800)                                                  @396  # while (pros::millis() - ... < 800)
+action("intake.move(-127)")                                 @399
+action("ChangeLBState(EXTENDED)")                           @400
+action("intake.move(0)")                                    @406
+action("intakeUnstuckActivated = false")                    @407
+action("colorFiltrationActive = false")                     @408
+pid_turn_set(54, 120)                                       @409  # chassis.pid_turn_set(44 + 10, 120)
+pid_wait_quick_chain()                                      @410
+pid_drive_set(-16, 127, false)                              @411  # chassis.pid_drive_set(-20 + 4, 127, false)
+pid_wait_quick_chain()                                      @412
+action("intake.move(0)")                                    @413
+pid_turn_set(44, 120)                                       @414
+pid_wait_quick_chain()                                      @415
+pid_drive_set(-54, 127, false)                              @416  # chassis.pid_drive_set(-50 - 4, 127, false)
+action("intake.move(0)")                                    @417
+pid_wait_until(-28)                                         @418
+pid_speed_max_set(80)                                       @419
+action("intake.move(0)")                                    @420
+pid_wait_quick_chain()                                      @421

@@ -1,0 +1,79 @@
+# @name new_mogo_rush.blue
+# imported from autons.cpp:490 by tools/ez_import.py
+# bindings: isBlue=true
+
+action("colorFiltrationActive = false")      @494
+action("LBState = PROPPED")                  @498
+action("ladybrown2.set_zero_position(-25)")  @499
+action("ChangeLBState(SEMIEXTENDED)")        @500
+odom_xyt_set(0, 0, -113)                     @501  # chassis.odom_xyt_set(0, 0, (-113) * sgn)
+pid_drive_set(34, 127)                       @502  # set_drive(33.5 + 0.5, 2500, 126, 127)
+delay(50)                                    @503
+action("intake.move(-127)")                  @504
+action("startColorUntil(1)")                 @505
+delay(200)                                   @507
+action("intake.move(127)")                   @508
+pid_wait_until(12)                           @509
+action("rightDoinker.toggle()")              @511
+pid_wait_until(31)                           @515  # chassis.pid_wait_until(30 + 1)
+action("rightDoinker.toggle()")              @517
+pid_wait_until(32.5)                         @521  # chassis.pid_wait_until(31.5 + 1)
+pid_drive_set(-16, 127)                      @525  # set_drive(-13 - 3, 1500, 120)
+pid_wait()                                   @526
+action("rightDoinker.toggle()")              @528
+delay(300)                                   @532
+pid_drive_set(-7, 127)                       @533  # set_drive(-7)
+pid_wait()                                   @534
+action("rightDoinker.toggle()")              @536
+pid_turn_set(79, 90)                         @542  # chassis.pid_turn_set((74 + 5) * sgn, 90)
+pid_wait()                                   @543
+pid_drive_set(-22, 90)                       @544  # set_drive(-22, 2000, 0, 90)
+pid_wait_until(-10)                          @545
+pid_speed_max_set(65)                        @546
+pid_wait_until(-18)                          @547  # chassis.pid_wait_until(-20 + 2)
+action("mogoClamp.toggle()")                 @548
+pid_wait()                                   @549
+action("stopColorUntilFunction()")           @550
+action("intake.move(127)")                   @551
+pid_turn_set(73, 120)                        @552  # chassis.pid_turn_set((66 + 7) * sgn, 120)
+pid_wait()                                   @553
+pid_drive_set(35.5, 127)                     @554  # set_drive(32 + 3.5, 2000, 65, 127)
+pid_wait()                                   @557
+pid_turn_set(-135, 90)                       @559  # chassis.pid_turn_set((-135) * sgn, 90)
+pid_wait()                                   @560
+action("mogoClamp.toggle()")                 @561
+action("intake.move(127)")                   @562
+pid_drive_set(9.5, 127)                      @563
+pid_wait()                                   @564
+action("colorFiltrationActive = true")       @565
+pid_turn_set(132, 90)                        @566  # chassis.pid_turn_set((132) * sgn, 90)
+pid_wait()                                   @567
+pid_drive_set(-19, 80)                       @568  # set_drive(-19, 2000, 0, 80)
+pid_wait_until(-5)                           @569  # chassis.pid_wait_until(-10 + 5)
+pid_speed_max_set(65)                        @570
+pid_wait_until(-14)                          @571  # chassis.pid_wait_until(-17 + 3)
+action("mogoClamp.toggle()")                 @572
+pid_wait()                                   @573
+pid_turn_set(180, 127)                       @574  # chassis.pid_turn_set((130 + 50) * sgn, 127)
+pid_wait()                                   @575
+action("intake.move(0)")                     @582
+pid_drive_set(25, 127)                       @583  # set_drive(35 - 10)
+pid_wait_until(10)                           @584
+pid_wait_quick_chain()                       @586
+pid_turn_set(120, 100)                       @587  # chassis.pid_turn_set((120) * sgn, 100)
+pid_wait_quick_chain()                       @588
+drive_set(100, 100)                          @598
+delay(400)                                   @597  # while (pros::millis() - ... < 400)
+drive_set(75, 75)                            @603
+delay(700)                                   @602  # while (pros::millis() - ... < 700)
+pid_drive_set(-10, 127)                      @608
+pid_wait()                                   @609
+pid_turn_set(256, 127)                       @611  # chassis.pid_turn_set(256 * sgn, 127)
+pid_wait()                                   @612
+pid_drive_set(40.5, 127)                     @613  # set_drive(40 + 0.5)
+pid_wait()                                   @615
+pid_turn_set(-132, 90)                       @616  # chassis.pid_turn_set((-135 + 3) * sgn, 90)
+pid_wait()                                   @617
+action("ChangeLBState(EXTENDED)")            @618
+pid_drive_set(4, 127)                        @619  # set_drive(4)
+pid_wait()                                   @620

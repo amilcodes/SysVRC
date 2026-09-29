@@ -1,0 +1,54 @@
+# @name disrupt_ring_rush.blue
+# imported from autons.cpp:623 by tools/ez_import.py
+# bindings: isBlue=true
+
+odom_xyt_set(55, 30, -73.5)       @625  # chassis.odom_xyt_set(55 * sgn, 30, -(71 + 2.5) * sgn)
+action("setIntake(0)")            @626
+pid_drive_set(39.5, 127)          @627  # set_drive(38 + 1.5, 2500, 100, 127)
+action("leftDoinker.toggle()")    @628
+action("rightDoinker.toggle()")   @629
+pid_wait()                        @630
+pid_drive_set(-13.5, 127)         @631  # set_drive(-12 + 1.5 - 3, 2000)
+pid_wait()                        @632
+pid_turn_set(-97, 127)            @633  # chassis.pid_turn_set(-97 * sgn, 127)
+pid_wait()                        @634
+pid_drive_set(-7.5, 127)          @635  # set_drive(-4.5 - 3, 1500, 70, 127)
+pid_wait_until(4)                 @636  # chassis.pid_wait_until(1 + 3)
+action("leftDoinker.toggle()")    @637
+action("rightDoinker.toggle()")   @638
+pid_wait()                        @639
+pid_turn_set(31, 127)             @642  # chassis.pid_turn_set((33 - 2) * sgn, 127)
+pid_wait()                        @643
+pid_drive_set(-20.5, 75)          @644  # set_drive(-18.5 - 5 + 3, 1500, 0, 65 + 10)
+pid_wait_until(15.5)              @645  # chassis.pid_wait_until(14 + 1.5)
+action("mogoClamp.toggle()")      @646
+pid_drive_set(-10.5, 120)         @647  # set_drive(-12 + 1.5, 1500, 70, 120)
+pid_wait()                        @648
+pid_turn_set(-8, 127)             @649  # chassis.pid_turn_set((-8) * sgn, 127)
+pid_wait()                        @651
+delay(100)                        @652
+pid_drive_set(26, 45)             @653  # set_drive(41 - 15, 2000, 0, 50 - 5)
+pid_wait_until(8)                 @654
+action("intake.move(127)")        @655
+pid_wait()                        @656
+delay(500)                        @657
+pid_drive_set(11, 127)            @658  # set_drive(13 - 2, 1500)
+pid_wait()                        @659
+delay(500)                        @661
+pid_turn_set(133.5, 127)          @662  # chassis.pid_turn_set((135 - 1.5) * sgn, 127)
+pid_wait()                        @663
+pid_drive_set(48.5, 127)          @664  # set_drive(58.5 - 10, 2000, 70, 127)
+pid_wait_until(10)                @665
+action("ChangeLBState(PROPPED)")  @666
+pid_wait()                        @667
+delay(600)                        @668
+pid_turn_set(119.5, 127)          @669  # chassis.pid_turn_set((125 - 5.5) * sgn, 127)
+pid_wait()                        @670
+action("intake.move(0)")          @671
+pid_drive_set(8.75, 127)          @672  # set_drive(11 - 2.25, 1500)
+pid_wait()                        @673
+action("ChangeLBState(3)")        @674
+delay(600)                        @675
+pid_drive_set(-13.5, 127)         @676  # set_drive(-24.5 + 3 + 8, 2000, 70, 127)
+pid_wait()                        @677
+action("ChangeLBState(REST)")     @678
