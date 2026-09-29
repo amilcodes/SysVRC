@@ -1,9 +1,9 @@
 // visbot/constants.hpp — the one place robot geometry and tuned gains live.
 //
-// Every number here is lifted from the competition code: geometry from
+// Every number here is copied from the competition code: geometry from
 // v5/src/subsystemFiles/globals.cpp, gains and exit conditions from
-// default_constants() in v5/src/autons.cpp. Change them here and both the
-// firmware and the sim pick up the change.
+// default_constants() in v5/src/autons.cpp. The firmware does not include
+// this file yet, so a retune on the robot has to be copied here by hand.
 #pragma once
 
 #include "visbot/pid.hpp"

@@ -38,11 +38,11 @@ jobs:
           docker run --rm --cap-add=SYS_NICE --cap-add=IPC_LOCK --ulimit rtprio=99 --ulimit memlock=-1 \
             -v "$PWD":/ws/src/sysvrc -w /ws sysvrc-sim:jazzy bash -lc '
             colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release > /dev/null &&
-            sim/tools/smoke_test.sh 22 skills fifo 1 true 500 &&
-            sim/tools/smoke_test.sh 22 mogo_rush fifo 1 true 500' 2>&1 | tee smoke.log
+            src/sysvrc/sim/tools/smoke_test.sh 22 skills fifo 1 true 500 &&
+            src/sysvrc/sim/tools/smoke_test.sh 22 mogo_rush fifo 1 true 500' 2>&1 | tee smoke.log
       - name: gazebo headless spawns + bridges
         run: |
           docker run --rm --cap-add=SYS_NICE --ulimit rtprio=99 --ulimit memlock=-1 \
             -v "$PWD":/ws/src/sysvrc -w /ws sysvrc-sim:jazzy bash -lc '
             colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release > /dev/null &&
-            sim/tools/gazebo_smoke.sh 25 square 6.0'
+            src/sysvrc/sim/tools/gazebo_smoke.sh 25 square 6.0'
