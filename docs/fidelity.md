@@ -25,6 +25,8 @@ instead of silently changing how the robot drives.
 | 4 | **`small_error` and `big_error` are `if / else if`.** Every motion in `autons.cpp` sets `small_error`, so `BIG_EXIT` is unreachable on this robot. | both conditions active | `ez_quirk_big_error_is_dead_when_small_is_set` |
 | 5 | **The velocity exit tests `\|derivative\| <= 0.05` alone** — there is no "and still far from the target" guard, so it can fire while settling. | gate on remaining error | `velocity_exit_fires_when_measurement_stops` |
 | 6 | **Slew disables itself when the requested max speed is below `min_speed`**, rather than ramping to a cap lower than its own floor. | clamp `min` to `max` | `ez_quirk_disabled_when_max_speed_below_min` |
+| 7 | **The sign of a speed is thrown away.** `pid_speed_max_set` does `abs(clamp(speed, 127, -127))`, so `pid_swing_set(..., -100)` is exactly `+100`. Direction only ever comes from the target. `positiveSideQuals` has two swings at `-100` (lines 1383 and 1387) that never swung backwards. | negative speed reverses | `negative_speed_is_the_same_as_positive` |
+| 8 | **Slew collapses if the robot is moving the wrong way when a motion starts.** The ramp is a line in error space; roll away from it and the line extrapolates past `min_speed` toward zero. A slewed reverse drive issued while still rolling forward barely moves. Found by the sim after a timed `drive_set` push; on the field the wall usually stops the robot first. | ramp from current speed | `ez_quirk_slew_collapses_if_moving_the_wrong_way` |
 
 ## Semantics that a naive port gets wrong
 
@@ -49,6 +51,17 @@ timers when it succeeds. Re-polling a side that has already exited restarts
 its clock, so on a two-PID motion the sides starve each other and the wait
 never returns. EZ latches (`left_exit = left_exit != RUNNING ? left_exit : …`)
 and so does this.
+
+**`pid_wait_until` means a heading during a turn.** With a drive running it's
+a distance; with a turn or swing running it's an absolute heading. The
+first version always treated it as a distance. `worldsMogoRush` depends on
+the heading meaning (`pid_turn_set(90 * sgn); pid_wait_until(2)`).
+
+**The last motion keeps running after the routine returns.** A routine that
+ends with `set_drive(-30);` and no wait still drives those 30 inches: the
+auton function returns, but EZ's PID task keeps going. The first version
+stopped the robot on the spot, which made `stateSoloAwpCenterGet` look like it
+always finished in time. It doesn't (see below).
 
 **`pid_wait_quick_chain` waits on the *original* target.** It extends the PID
 target by the chain constant, then calls `pid_wait_quick`, which waits only
@@ -81,35 +94,42 @@ Listed so nobody has to discover them by being surprised.
 | **Tracking wheels** | This robot runs without them (`globals.cpp` has both trackers commented out), so odometry is encoder + IMU only, matching the real configuration. `ez::tracking_wheel` is not ported. |
 | **`interfered` / mA-driven re-runs** | `interfered` is reported but no auton here branches on it. |
 | **Timeouts** | `Instr::timeoutMs` is a backstop for headless runs and has no EZ equivalent. It is reported as its own exit reason so it can never be mistaken for robot behaviour. |
-| **Mechanism subsystems** | Intake, ladybrown, clamp and colour sort are recorded as timestamped `ActionId` events, not simulated. Their *timing* is preserved; their *effects* are not. |
+| **Mechanism subsystems** | Intake, ladybrown, clamp and colour sort are recorded as timestamped action events (the original call text), not simulated. Their *timing* is preserved; their *effects* are not. |
+| **After the routine returns** | EZ holds the last motion until the auton period ends. The sim holds it until it settles, or 5 s, so headless runs terminate. |
+| **Turn to a point, reversed** | EZ faces a point in reverse through `find_point_to_face`; this adds 180° to the bearing. Same heading. |
+| **Walls** | Only modelled when a routine has a real field start (`# @field_start`). The chassis stops at the wall and the encoders keep counting, which is what makes odometry wrong after a wall push. No rotation from wall contact. |
+| **Field elements** | None. The robot drives through goals and rings. |
 
-## Odometry drift is real, and the testbed shows it
+## Odometry drift against Gazebo
 
-Encoder + IMU dead reckoning cannot observe wheel slip. Running the same
-routines against Gazebo's physics and comparing the controller's pose estimate
-against ground truth:
+Encoder + IMU dead reckoning cannot see wheel slip. Comparing the
+controller's estimate against Gazebo's ground truth at the end of a run:
 
-| routine | character | drift vs truth |
-|---|---|---:|
-| `square` | 24 in legs at speed 100, square corners | **3.6 in** |
-| `mogo_rush` | the real auton: speed 127, hard reversals, corner drags | **20.1 in** |
+| routine | drift vs truth |
+|---|---:|
+| `square` | 0.75 in |
+| `worlds_mogo_rush.blue` (full routine, imported) | 2.8 in |
 
-That gap is the point. The routine that looks fine on a gentle path loses
-20 inches of position confidence in seven seconds of competition driving,
-which is why `worldsMogoRush` is written almost entirely in *relative*
-`pid_drive_set` / `pid_turn_set` commands rather than odom points, and why it
-re-zeros with `odom_xyt_set` at the start. It also puts a number on what
-tracking wheels would buy.
+Correction: an earlier version of this page said `mogo_rush` drifted 20.1 in.
+That was measured on a hand-copied version of the routine that stopped before
+the corner push, running on the controller before the fixes above (wrapped
+heading, both exit branches live, and so on). It wasn't a property of the
+real routine, and the number is gone.
 
-`sim/tools/gazebo_smoke.sh` takes the tolerated drift as its third argument
-for this reason; CI runs `square` at 6 in.
+Single Gazebo runs vary by an inch or two between runs. For spread across many
+runs, use `auton_check` (see [auton_check.md](auton_check.md)).
+`sim/tools/gazebo_smoke.sh` takes the tolerated drift as its third argument;
+CI runs `square` at 6 in.
 
 ## What this buys
 
-`missions::worldsMogoRush` is a direct transcription of `worldsMogoRush()` from
-`v5/src/autons.cpp` — same distances, same `wait_until` triggers, same
-mid-motion `speed_max` changes, same chaining, same mechanism call ordering.
-It runs to completion in the sim in ~7.3 s and stays inside the field. That is
-only possible because the instruction model mirrors EZ's two-thread structure:
-a motion is *set*, then the routine blocks in a `pid_wait*` while the PID task
-keeps running.
+`tools/ez_import.py` reads `autons.cpp` directly, so the sim runs the
+routines as written instead of a hand copy. That matters: the one hand copy
+this repo used to have was missing its last third, and got a speed wrong
+because `set_drive`'s third argument is `minSpeed`, not speed. Of the 18
+routines in `v5/src`, 16 import with nothing left out; the other two branch on
+live sensor readings, which the importer reports line by line.
+
+The motion engine mirrors EZ's two-thread structure (a motion is *set*, then
+the routine blocks in a `pid_wait*` while the PID task keeps running), so each
+imported routine runs to completion unmodified.

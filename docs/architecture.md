@@ -1,30 +1,37 @@
 # Architecture
 
 ```
-                 ┌──────────────────────────── core/ (header-only C++17, no deps) ───────────────────────────┐
-                 │  pid.hpp  slew.hpp  cheesy_drive.hpp  odometry.hpp  motion.hpp  plant.hpp  missions.hpp   │
-                 └──────────────┬─────────────────────────────────────────────────────┬──────────────────────┘
-                                │ #include                                            │ #include
-              ┌─────────────────▼──────────────┐                    ┌─────────────────▼──────────────────────┐
-              │ v5/  (PROS, V5 brain)          │                    │ sim/src/visbot_control                 │
-              │ autons.cpp · drive.cpp · ...   │                    │ controller_node  ─ RT thread @120 Hz   │
-              │ EZ-Template gains → constants  │                    │ plant_node       ─ fast backend        │
-              └────────────────────────────────┘                    │ rt_bench         ─ latency benchmark   │
-                                                                    └───┬──────────────────────▲─────────────┘
-                                                        /visbot/cmd_vel │                      │ /visbot/imu (200 Hz)
-                                                        (Twist)         │                      │ /visbot/joint_states (100 Hz)
-                                                                        ▼                      │ /visbot/odom (50 Hz, truth)
-                                            ┌──────────── one of ────────────┐                 │
-                                            │ Gazebo Harmonic + ros_gz_bridge│─────────────────┘
+  v5/src/autons.cpp ──► tools/ez_import.py ──► autons/*.auton        (one file per routine, @line numbers kept)
+  (EZ-Template, PROS)                                │
+                                                     │ auton_file.hpp (parse)
+                    ┌────────────── core/ (header-only C++17, no deps) ──────────────┐
+                    │  pid  slew  odometry  motion (EZ's PID tasks + instruction list) │
+                    │  plant (kinematic drivetrain)  cheesy_drive  constants          │
+                    └──────────────┬───────────────────────────────────┬──────────────┘
+                                   │                                   │
+                  ┌────────────────▼───────────────┐   ┌───────────────▼─────────────────────┐
+                  │ auton_check                    │   │ sim/src/visbot_control              │
+                  │ same routine x N runs, varied  │   │ controller_node ─ RT thread @120 Hz │
+                  │ placement/battery/slip/...     │   │ plant_node      ─ fast backend      │
+                  │ → terminal, JSON, HTML report  │   │ rt_bench        ─ latency benchmark │
+                  └────────────────────────────────┘   └───┬───────────────────────▲─────────┘
+                                                /visbot/cmd_vel │                  │ /visbot/imu (200 Hz)
+                                                (Twist)         │                  │ /visbot/joint_states (100 Hz)
+                                                                ▼                  │ /visbot/odom (50 Hz, truth)
+                                            ┌──────────── one of ────────────┐     │
+                                            │ Gazebo Harmonic + ros_gz_bridge│─────┘
                                             │   vrc_field.sdf, visbot.urdf   │
                                             ├────────────────────────────────┤
                                             │ plant_node (kinematic, 1 kHz)  │
                                             └────────────────────────────────┘
-                                                                        │ /visbot/control_state (30 Hz)
-                                                                        │ /visbot/control_stats (10 Hz)
-                                                                        ▼
-                                                           visbot_dash → ws://:8081 → browser
+                                                                │ /visbot/control_state (30 Hz)
+                                                                │ /visbot/control_stats (10 Hz)
+                                                                ▼
+                                                   visbot_dash → ws://:8081 → browser
 ```
+
+The firmware doesn't include `core/` yet. `v5/common.mk` has it on the include
+path, but the robot still runs EZ-Template itself; `core/` is a port of it.
 
 ## The control thread
 
@@ -72,20 +79,23 @@ Stale-sensor gating: if the freshest IMU or encoder sample is older than
 `stale_limit_ms` (50 ms), the tick outputs zero and counts a stale tick. A
 sensor dropout must not look like "the robot stopped turning".
 
-## Controllers are shared, not mirrored
+## Controllers are ported, not reinvented
 
-`core/` contains the actual algorithms from the competition code with the
-hardware calls removed:
+`core/` contains EZ-Template's algorithms, checked against EZ's own source,
+with the hardware calls removed:
 
-* `CheesyDrive` is the operator mixer from `v5/src/subsystemFiles/drive.cpp`
-  (turn remapping, negative inertia, quick-stop accumulators);
-* `Pid` implements EZ-Template semantics (`start_i` gating, sign-flip
-  integral reset, small/big/velocity exit conditions);
+* `Pid` and `Slew` are `ez::PID` and `ez::slew`, quirks included;
+* `MotionController` is EZ's drive, turn, swing and point-to-point PID tasks
+  plus a program counter. A routine is a flat list of instructions
+  (`pid_drive_set`, `pid_wait_until`, `action(...)`, ...) because that's what
+  an EZ auton is: set a motion, then block in a `pid_wait*` while the 10 ms task
+  keeps driving;
 * `DriveGains` in `constants.hpp` are the literal numbers from
   `default_constants()` in `autons.cpp`;
-* `MotionController` provides `driveDistance` / `turnTo` / `driveToPoint` /
-  `wait` steps with the same exit-condition behaviour as
-  `chassis.pid_drive_set` / `pid_turn_set` / `pid_odom_set`.
+* `CheesyDrive` is the operator mixer from `v5/src/subsystemFiles/drive.cpp`.
+
+[fidelity.md](fidelity.md) lists what matches EZ exactly, the quirks that are
+kept on purpose, and the places that don't match.
 
 EZ runs at 100 Hz and its kD is per-tick. `Pid` rescales the derivative and
 integral to a 10 ms tick from whatever real `dt` it is given, so the same
