@@ -9,6 +9,7 @@ SECS="${1:-25}"; MISSION="${2:-square}"
 # all-out rush drifts far more than a gentle square. See docs/fidelity.md.
 DRIFT_MAX="${3:-6.0}"
 source /opt/ros/jazzy/setup.bash; source /ws/install/setup.bash
+source "$(dirname "$0")/lib.sh"
 set -u
 export GZ_SIM_RESOURCE_PATH="${GZ_SIM_RESOURCE_PATH:-}"
 
@@ -21,18 +22,6 @@ teardown() {
 }
 trap teardown EXIT
 sleep "$SECS"
-
-# One-shot reads can take several seconds on a small CI runner: the ros2 CLI
-# has to start and discover the graph. Retry with a generous timeout rather
-# than mistake a slow start for a dead topic.
-echo_once() {  # topic [extra args...]
-  local out=""
-  for _ in 1 2 3; do
-    out=$(timeout 15 ros2 topic echo --once "$@" 2>/dev/null || true)
-    [ -n "$out" ] && break
-  done
-  printf '%s' "$out"
-}
 
 echo "--- topic rates (gz -> ros bridge) ---"
 imu_ok=0

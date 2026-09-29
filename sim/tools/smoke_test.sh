@@ -7,6 +7,7 @@
 set -eo pipefail
 SECS="${1:-22}"; MISSION="${2:-skills}"; SCHED="${3:-fifo}"; CPU="${4:-3}"; POLL="${5:-true}"; SPIN="${6:-500}"
 source /opt/ros/jazzy/setup.bash; source /ws/install/setup.bash
+source "$(dirname "$0")/lib.sh"
 set -u
 
 setsid ros2 launch visbot_control plant.launch.py mission:="$MISSION" sched:="$SCHED" cpu:="$CPU" poll_idle:="$POLL" spin_us:="$SPIN" dash:=false > /tmp/smoke_launch.log 2>&1 &
@@ -19,8 +20,8 @@ teardown() {
 trap teardown EXIT
 sleep "$SECS"
 
-STATE=$(timeout 5 ros2 topic echo --once /visbot/control_state 2>/dev/null || true)
-STATS=$(timeout 5 ros2 topic echo --once --no-arr /visbot/control_stats 2>/dev/null || true)
+STATE=$(echo_once /visbot/control_state)
+STATS=$(echo_once /visbot/control_stats --no-arr)
 echo "$STATE" | grep -E "^(x|y|theta_deg|step_index|step_count|step_name|last_exit|done):" || echo "(no control_state)"
 echo "$STATS" | grep -E "^(sched_policy|priority|memory_locked|ticks|overruns|missed_deadlines|stale_sensor_ticks|wake_latency_p50_us|wake_latency_p99_us|wake_latency_max_us|jitter_rms_us|exec_p99_us|sensor_age_mean_us):" || true
 
@@ -29,9 +30,11 @@ overruns=$(echo "$STATS" | awk '/^overruns:/{print $2}')
 p99=$(echo "$STATS" | awk '/^wake_latency_p99_us:/{print $2}')
 x=$(echo "$STATE" | awk '/^x:/{print $2}'); y=$(echo "$STATE" | awk '/^y:/{print $2}')
 fail=0
+[ -n "$STATE" ] || { echo "FAIL: no /visbot/control_state received"; fail=1; }
+[ -n "$STATS" ] || { echo "FAIL: no /visbot/control_stats received"; fail=1; }
 [ "$done_flag" = "true" ] || { echo "FAIL: mission not done"; fail=1; }
-[ "${overruns:-1}" = "0" ] || { echo "FAIL: $overruns overruns"; fail=1; }
-python3 - "$p99" "$x" "$y" "$MISSION" <<'PY' || fail=1
+[ -z "$STATS" ] || [ "$overruns" = "0" ] || { echo "FAIL: $overruns overruns"; fail=1; }
+[ -n "$STATS" ] && [ -n "$STATE" ] && python3 - "$p99" "$x" "$y" "$MISSION" <<'PY' || fail=1
 import sys, math
 p99, x, y = map(float, sys.argv[1:4])
 mission = sys.argv[4]
