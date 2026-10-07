@@ -1,0 +1,63 @@
+{
+  "schema": "sysvrc-robot/1",
+  "name": "ours (High Stakes)",
+  "source": {
+    "cad": null,
+    "code": ["v5/src/subsystemFiles/globals.cpp", "v5/src/subsystemFiles/ladybrown.cpp", "v5/src/subsystemFiles/mogo.cpp",
+             "v5/src/subsystemFiles/intake.cpp", "v5/src/subsystemFiles/colorSort.cpp"],
+    "analyzer": "by hand from the code, no CAD yet"
+  },
+  "footprint": {"width": 15.0, "length": 15.0, "height": 18.0},
+  "mass_lb": 16.5,
+  "drive": {
+    "type": "tank",
+    "wheel_diameter": 3.25,
+    "wheels_per_side": 3,
+    "motors_per_side": 3,
+    "motor": "11W",
+    "cartridge_rpm": 600,
+    "ratio": 0.75,
+    "wheel_rpm": 450,
+    "track_width": 12.5,
+    "wheelbase": 11.0
+  },
+  "code": {"wheel_diameter": 3.25, "wheel_rpm": 450, "cartridge_rpm": 600,
+           "where": "globals.cpp: ez::Drive chassis({9, -8, -10}, {-1, 4, 2}, 21, 3.25, 450)"},
+  "mechanisms": [
+    {"id": "intake", "kind": "intake", "name": "hook conveyor", "code_names": ["intake"],
+     "motors": 1, "motor": "11W", "cartridge_rpm": 600, "ratio": 1,
+     "zone": [[-5, 6.5], [5, 11]], "capacity": 2, "transfer_s": 0.6},
+    {"id": "clamp", "kind": "goal_clamp", "name": "mogo clamp", "actuator": "pneumatic", "code_names": ["mogoClamp"],
+     "closed_when": true, "zone": [[-4, -11.5], [4, -5.5]]},
+    {"id": "ladybrown", "kind": "wall_stake_arm", "name": "lady brown", "code_names": ["ladybrown1", "ladybrown2"],
+     "motors": 2, "motor": "11W", "cartridge_rpm": 200, "ratio": 0.3333,
+     "states": {"REST": 0, "PROPPED": 27, "SEMIEXTENDED": 72, "DESCOREEXTENDED": 157, "EXTENDED": 177,
+                "ALMOSTFULLEXTENDED": 174, "FULLEXTENDED": 194},
+     "load_state": "PROPPED", "score_deg": 150, "deg_per_s": 300, "reach": [[-4, 7], [4, 17]]},
+    {"id": "intake_lift", "kind": "lift", "name": "intake lift", "actuator": "pneumatic", "code_names": ["intakeLift"]},
+    {"id": "doinker_left", "kind": "doinker", "name": "left doinker", "actuator": "pneumatic", "code_names": ["leftDoinker"]},
+    {"id": "doinker_right", "kind": "doinker", "name": "right doinker", "actuator": "pneumatic", "code_names": ["rightDoinker"]},
+    {"id": "color_sort", "kind": "color_sort", "name": "optical color sort", "start": true}
+  ],
+  "bindings": [
+    {"match": "^setIntake\\((.+)\\)$", "mech": "intake", "do": "speed", "value": "$1", "scale": 127},
+    {"match": "^(?:ChangeLBState|ChangeLBAuton|LBExtend)\\((\\w+)\\)$", "mech": "ladybrown", "do": "state", "value": "$1"},
+    {"match": "^LBState\\s*=\\s*(\\w+)$", "mech": "ladybrown", "do": "state", "value": "$1"},
+    {"match": "^callLBReset\\(\\)$", "mech": "ladybrown", "do": "state", "value": "REST"},
+    {"match": "^startColorUntil\\((.+)\\)$", "mech": "color_sort", "do": "until", "value": "$1"},
+    {"match": "^stopColorUntilFunction\\(\\)$", "mech": "color_sort", "do": "release"},
+    {"match": "^colorFiltrationActive\\s*=\\s*(true|false)$", "mech": "color_sort", "do": "set", "value": "$1"}
+  ],
+  "preload": true,
+  "evidence": [
+    {"about": "drive", "source": "code", "detail": "ez::Drive chassis(..., 3.25, 450); MotorGroups are MotorGears::blue (600 rpm), so 36:48"},
+    {"about": "ladybrown.states", "source": "code", "detail": "STOP1..STOP3 in ladybrown.cpp; arm angle = ladybrown2 degrees / 3"},
+    {"about": "clamp.closed_when", "source": "code", "detail": "mogo.cpp extends the piston to clamp (autoclamp calls mogoClamp.extend())"},
+    {"about": "color_sort", "source": "code", "detail": "startColorUntil(n) intakes until n alliance rings are held; colorFiltrationActive flings the wrong colour"},
+    {"about": "color_sort.start", "source": "code", "detail": "autonomous() sets ColorLoopActive = true and colorFiltrationActive = true before every routine (main.cpp)"},
+    {"about": "footprint, track_width, zones", "source": "guess", "detail": "no CAD yet"}
+  ],
+  "questions": [
+    "No CAD yet, so the footprint, track width and where the intake, clamp and arm reach are estimates. Run tools/robot_studio on the robot's STEP export to measure them."
+  ]
+}

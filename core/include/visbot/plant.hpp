@@ -31,6 +31,10 @@ struct PlantParams {
     /// make an open-loop drive curve.
     double leftGain         = 1.0;
     double rightGain        = 1.0;
+    /// Encoder degrees as the controller will read them, per real wheel
+    /// degree. Not 1 when the code tells EZ a different gear ratio than the
+    /// robot really has (see RobotSpec::encoderScale).
+    double encoderScale     = 1.0;
     /// Field perimeter. Off by default because most routines are written in a
     /// frame whose origin is wherever odom_xyt_set put it, not field
     /// coordinates. Turn it on (with a start pose in field coordinates) for
@@ -84,8 +88,8 @@ public:
             truth_.y = clamp(truth_.y, -lim, lim);
         }
 
-        encL_ += dl / rp_.inchesPerWheelDegree();
-        encR_ += dr / rp_.inchesPerWheelDegree();
+        encL_ += dl / rp_.inchesPerWheelDegree() * pp_.encoderScale;
+        encR_ += dr / rp_.inchesPerWheelDegree() * pp_.encoderScale;
         drift_ += pp_.imuDriftDegPerS * dt;
     }
 

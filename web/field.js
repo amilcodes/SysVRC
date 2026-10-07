@@ -20,6 +20,8 @@
   const RED = "#d8423b", BLUE = "#2f7fd8";
 
   // ---------------------------------------------------------------- layouts
+  // A ring position is a stack, colours listed bottom first: "r" is one red
+  // ring, "rb" a blue on top of a red, "rbrb" the four-high corner stacks.
   const ring = (x, y, c) => ({ x, y, c });
 
   // High Stakes (2024-25), Head-to-Head match.
@@ -41,13 +43,15 @@
       { x: -HALF, y: HALF, sign: "−" }, { x: HALF, y: HALF, sign: "−" },
       { x: -HALF, y: -HALF, sign: "+" }, { x: HALF, y: -HALF, sign: "+" },
     ],
+    // Figure FO-2 (v2.0): 8 single rings, 10 stacks of two, 4 corner stacks of
+    // four = 44, plus 4 preloads = the 48 in the manual.
     rings: [
-      ring(-24, 48, "b"), ring(24, 48, "r"),
-      ring(-3.5, 51.5, "b"), ring(-3.5, 44.5, "b"), ring(3.5, 51.5, "r"), ring(3.5, 44.5, "r"),
+      ring(-24, 48, "rb"), ring(24, 48, "br"),
+      ring(-3.5, 51.5, "rb"), ring(-3.5, 44.5, "rb"), ring(3.5, 51.5, "br"), ring(3.5, 44.5, "br"),
       ring(-3.5, 3.5, "b"), ring(-3.5, -3.5, "b"), ring(3.5, 3.5, "r"), ring(3.5, -3.5, "r"),
-      ring(-58, 0, "b"), ring(-47, 0, "r"), ring(47, 0, "b"), ring(58, 0, "r"),
-      ring(-47, -48, "b"), ring(-24, -48, "b"), ring(24, -48, "r"), ring(47, -48, "r"),
-      ring(-67, 67, "b"), ring(-67, -67, "b"), ring(67, 67, "r"), ring(67, -67, "r"),
+      ring(-58, 0, "b"), ring(-47, 0, "br"), ring(47, 0, "rb"), ring(58, 0, "r"),
+      ring(-47, -48, "b"), ring(-24, -48, "rb"), ring(24, -48, "br"), ring(47, -48, "r"),
+      ring(-67, 67, "rbrb"), ring(-67, -67, "rbrb"), ring(67, 67, "brbr"), ring(67, -67, "brbr"),
     ],
   };
 
@@ -58,7 +62,7 @@
     rings: [
       ...[[-48, 60], [0, 60], [-60, 48], [-48, 48], [24, 48], [-24, 24], [24, 24], [0, 0], [-24, -24],
           [24, -24], [-60, -48], [-48, -48], [24, -48], [-48, -60], [0, -60]].map(([x, y]) => ring(x, y, "r")),
-      ...[[48, 60], [48, 48], [60, 48], [48, -48], [60, -48], [48, -60]].map(([x, y]) => ring(x, y, "rb")),
+      ...[[48, 60], [48, 48], [60, 48], [48, -48], [60, -48], [48, -60]].map(([x, y]) => ring(x, y, "br")),
       ring(67, 67, "b"), ring(67, -67, "b"),
     ],
   });
@@ -114,8 +118,11 @@
     ladder: "#24272c", ladderRail: "#9aa1aa", toggle: "#d24fa8", pin: "#d9b33a", loader: "#e9ecef",
   };
 
-  function drawField(ctx, V, layoutKey) {
+  // opts.elements === false leaves out goals and rings (and the rings on
+  // stakes), for pages that animate them with drawElements().
+  function drawField(ctx, V, layoutKey, opts) {
     const L = LAYOUTS[layoutKey] || HS_MATCH;
+    const withElements = !opts || opts.elements !== false;
     const s = V.s;
     const P = V.px;
     ctx.save();
@@ -188,31 +195,6 @@
 
     if (L.ladder) drawLadder(ctx, P, s);
 
-    // goals
-    for (const g of L.goals || []) {
-      const [px, py] = P(g.x, g.y);
-      const r = 5 * s;
-      ctx.beginPath();
-      const n = g.shape === "hex" ? 6 : 8;
-      for (let i = 0; i < n; i++) {
-        const a = (Math.PI * 2 * i) / n + (n === 6 ? Math.PI / 6 : Math.PI / 8);
-        const x = px + r * Math.cos(a), y = py + r * Math.sin(a);
-        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-      }
-      ctx.closePath();
-      ctx.fillStyle = g.c ? g.c : n === 6 ? C.goal : "#6c7280";
-      ctx.globalAlpha = 0.72;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = Math.max(1, 0.5 * s);
-      ctx.strokeStyle = "rgba(0,0,0,0.45)";
-      ctx.stroke();
-      ctx.fillStyle = "rgba(0,0,0,0.55)";
-      ctx.beginPath();
-      ctx.arc(px, py, 0.9 * s, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
     // wall stakes (High Stakes)
     for (const k of L.stakes || []) {
       const [px, py] = P(k.x, k.y);
@@ -225,21 +207,9 @@
       ctx.stroke();
     }
 
-    // rings
-    for (const r of L.rings || []) {
-      const [px, py] = P(r.x, r.y);
-      ctx.lineWidth = 2.2 * s;
-      if (r.c === "rb") {
-        ctx.strokeStyle = C.ring.r;
-        ctx.beginPath(); ctx.arc(px, py, 2.4 * s, Math.PI, 0); ctx.stroke();
-        ctx.strokeStyle = C.ring.b;
-        ctx.beginPath(); ctx.arc(px, py, 2.4 * s, 0, Math.PI); ctx.stroke();
-      } else {
-        ctx.strokeStyle = C.ring[r.c];
-        ctx.globalAlpha = 0.85;
-        ctx.beginPath(); ctx.arc(px, py, 2.4 * s, 0, Math.PI * 2); ctx.stroke();
-        ctx.globalAlpha = 1;
-      }
+    if (withElements) {
+      for (const g of L.goals || []) drawGoal(ctx, V, g.x, g.y, g, []);
+      for (const r of L.rings || []) drawStack(ctx, V, r.x, r.y, r.c);
     }
 
     // Override: pins, toggles, loaders
@@ -272,6 +242,89 @@
     ctx.restore();
   }
 
+  // A ring stack seen from above, like the manual's legend: one colour for a
+  // single ring, top half / bottom half for two, quarters for more. `cs` is
+  // bottom first (string or array).
+  function drawStack(ctx, V, x, y, cs, scale) {
+    cs = Array.isArray(cs) ? cs : String(cs).split("");
+    if (!cs.length) return;
+    const s = V.s * (scale || 1);
+    const [px, py] = V.px(x, y);
+    const top = cs[cs.length - 1], under = cs.length > 1 ? cs[cs.length - 2] : top;
+    ctx.save();
+    ctx.lineWidth = 2.2 * s;
+    const arc = (c, a0, a1) => { ctx.strokeStyle = C.ring[c] || c; ctx.beginPath(); ctx.arc(px, py, 2.4 * s, a0, a1); ctx.stroke(); };
+    if (cs.length === 1) { ctx.globalAlpha = 0.9; arc(top, 0, Math.PI * 2); }
+    else if (cs.length === 2) { arc(top, Math.PI, 0); arc(under, 0, Math.PI); }
+    else {
+      const q = Math.PI / 2;
+      for (let i = 0; i < 4; i++) arc(i % 2 ? under : top, -3 * q / 2 + i * q, -q / 2 + i * q);
+    }
+    ctx.restore();
+  }
+
+  // A mobile goal, and the rings on its stake drawn as a short stack beside
+  // the count (top ring's colour is what scores 3).
+  function drawGoal(ctx, V, x, y, g, rings, opts) {
+    const s = V.s;
+    const [px, py] = V.px(x, y);
+    const r = 5 * s;
+    const n = g.shape === "oct" ? 8 : 6;
+    ctx.save();
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const a = (Math.PI * 2 * i) / n + (n === 6 ? Math.PI / 6 : Math.PI / 8);
+      const X = px + r * Math.cos(a), Y = py + r * Math.sin(a);
+      i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = g.c ? g.c : n === 6 ? C.goal : "#6c7280";
+    ctx.globalAlpha = opts && opts.held ? 0.9 : 0.72;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = Math.max(1, 0.5 * s);
+    ctx.strokeStyle = opts && opts.held ? "#fff" : "rgba(0,0,0,0.45)";
+    ctx.stroke();
+    if (rings && rings.length) {
+      drawStack(ctx, V, x, y, rings, 1.15);
+      label(ctx, V, x, y, String(rings.length));
+    } else {
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.beginPath();
+      ctx.arc(px, py, 0.9 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function label(ctx, V, x, y, text) {
+    const [px, py] = V.px(x, y);
+    ctx.save();
+    ctx.font = `700 ${Math.max(9, 3.2 * V.s)}px ui-monospace, "SF Mono", Menlo, monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(0,0,0,0.7)";
+    ctx.strokeText(text, px, py);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(text, px, py);
+    ctx.restore();
+  }
+
+  // Everything the game sim moves: loose ring stacks, goals (held or not)
+  // with their rings, and rings on the wall stakes.
+  // state = { loose: [{x, y, cs}], goals: [{x, y, held, rings}], stakes: [{x, y, rings}] }
+  function drawElements(ctx, V, layoutKey, state) {
+    const L = LAYOUTS[layoutKey] || HS_MATCH;
+    (state.goals || []).forEach((g, i) => drawGoal(ctx, V, g.x, g.y, (L.goals || [])[i] || {}, g.rings, { held: g.held }));
+    for (const r of state.loose || []) drawStack(ctx, V, r.x, r.y, r.cs);
+    for (const k of state.stakes || []) {
+      if (!k.rings.length) continue;
+      drawStack(ctx, V, k.x - Math.sign(k.x) * 2.5, k.y - Math.sign(k.y) * 2.5, k.rings, 1.0);
+      label(ctx, V, k.x - Math.sign(k.x) * 7, k.y - Math.sign(k.y) * 7, String(k.rings.length));
+    }
+  }
+
   function drawLadder(ctx, P, s) {
     const pts = [[0, 24], [24, 0], [0, -24], [-24, 0]];
     ctx.save();
@@ -293,7 +346,9 @@
   function line(ctx, x0, y0, x1, y1) { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); }
   function segIn(ctx, P, x0, y0, x1, y1) { const a = P(x0, y0), b = P(x1, y1); line(ctx, a[0], a[1], b[0], b[1]); }
 
-  // A robot footprint: square body, a thick front edge, a heading tick.
+  // A robot footprint: its outline (robot frame, inches, +y forward) or a
+  // rounded w x l box, a thick front edge, a heading tick. opt.zones draws
+  // boxes in the robot frame too (where the intake grabs, the clamp holds).
   function drawRobot(ctx, V, pose, o) {
     const opt = Object.assign({ w: 15, l: 15, fill: null, stroke: "#fff", width: 1.5, alpha: 1, front: null }, o);
     const [px, py] = V.px(pose[0], pose[1]);
@@ -303,9 +358,25 @@
     ctx.translate(px, py);
     ctx.rotate((pose[2] * Math.PI) / 180);       // compass: clockwise from up
     const w = opt.w * s, l = opt.l * s;
-    roundRect(ctx, -w / 2, -l / 2, w, l, Math.min(3 * s, 4));
+    if (opt.outline && opt.outline.length >= 3) {
+      ctx.beginPath();
+      opt.outline.forEach(([x, y], i) => (i ? ctx.lineTo(x * s, -y * s) : ctx.moveTo(x * s, -y * s)));
+      ctx.closePath();
+    } else {
+      roundRect(ctx, -w / 2, -l / 2, w, l, Math.min(3 * s, 4));
+    }
     if (opt.fill) { ctx.fillStyle = opt.fill; ctx.fill(); }
     if (opt.stroke) { ctx.strokeStyle = opt.stroke; ctx.lineWidth = opt.width; ctx.stroke(); }
+    for (const z of opt.zones || []) {
+      const [[x0, y0], [x1, y1]] = z.box;
+      ctx.save();
+      ctx.globalAlpha = 1;
+      ctx.setLineDash([3, 2]);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = z.color;
+      ctx.strokeRect(x0 * s, -y1 * s, (x1 - x0) * s, (y1 - y0) * s);
+      ctx.restore();
+    }
     if (opt.front) {
       ctx.strokeStyle = opt.front;
       ctx.lineWidth = Math.max(2, opt.width * 1.8);
@@ -348,6 +419,6 @@
   const wrapDeg = (a) => { a = ((a + 180) % 360 + 360) % 360 - 180; return a <= -180 ? 180 : a; };
 
   window.VexField = {
-    TILE, HALF, RED, BLUE, LAYOUTS, view, drawField, drawRobot, codeToField, mirror, fmtLen, wrapDeg,
+    TILE, HALF, RED, BLUE, LAYOUTS, view, drawField, drawElements, drawStack, drawRobot, codeToField, mirror, fmtLen, wrapDeg,
   };
 })();

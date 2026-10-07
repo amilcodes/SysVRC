@@ -25,6 +25,10 @@
   .stats { font: 12px var(--mono); color: var(--ink2); white-space: nowrap; display: flex; gap: 14px; }
   .stats b { color: var(--ink); font-weight: 600; }
   .stats .bad b { color: var(--late); }
+  .chip { border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+  .chip.ok { color: var(--ink); border-color: #3a4a3a; }
+  .chip.miss { color: var(--amber); border-color: #4a3d12; }
+  #code .bd.ok { color: var(--ink2); }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
   .seg button { background: none; border: 0; padding: 3px 9px; color: var(--ink2); cursor: pointer; font: 12px var(--mono); }
   .seg button + button { border-left: 1px solid var(--line); }
@@ -107,6 +111,7 @@
 </div>
 <div id="tip"></div>
 <script>/*FIELD_JS*/</script>
+<script>/*GAME_JS*/</script>
 <script>
 "use strict";
 const D = /*REPORT_DATA*/null;
@@ -183,6 +188,45 @@ function toField(p) {
 }
 const sideColor = () => (S.side === "blue" ? F.BLUE : F.RED);
 
+// ------------------------------------------------------------------ game elements
+// With a robot.json (auton_check --robot), work out what the routine does to
+// the rings and goals: the clean run drives the animation, the varied runs say
+// how often it really scores that. Redone whenever the start, side or field
+// changes, which is cheap because the driving was already simulated.
+const GAME = window.VexGame;
+const robot = D.spec && GAME ? GAME.compile(D.spec) : null;
+const actionTexts = D.actions.map((a) => D.instrs[a.i].text.replace(/^action\("(.*)"\)$/, "$1"));
+let game = null;            // the clean run
+let gameRuns = [];          // the varied runs
+const gameOn = () => !!robot && GAME.supported(S.layout);
+let ghostTimer = 0;
+function runGame() {
+  game = null;
+  gameRuns = [];
+  clearTimeout(ghostTimer);
+  if (gameOn()) {
+    game = GAME.run({ layout: S.layout, robot, alliance: S.side, budget: D.budget, end: D.stats.total,
+                      poseAt: (t) => toField(sampleAt(D.path, D.dt, t)),
+                      events: GAME.events(robot, actionTexts, D.actions.map((a) => a.t)) });
+    ghostTimer = setTimeout(() => {
+      gameRuns = D.ghosts.map((run, g) => GAME.run({
+        layout: S.layout, robot, alliance: S.side, budget: D.budget, end: run.length * D.gdt,
+        poseAt: (t) => toField(sampleAt(run, D.gdt, t)),
+        events: GAME.events(robot, actionTexts, (D.gact && D.gact[g]) || []) }));
+      renderScore();
+      renderCode();
+      renderWhy();
+    }, 150);
+  }
+  renderScore();
+}
+// How many varied runs got the same result from mechanism call k.
+function hitRate(k) {
+  const outs = gameRuns.map((r) => r.outcome[k]).filter((o) => o && o.ok !== null && o.ok !== undefined);
+  if (!outs.length) return null;
+  return outs.filter((o) => o.ok).length / outs.length;
+}
+
 // ------------------------------------------------------------------ header
 $("name").textContent = D.name;
 $("sub").textContent = `${D.runs} runs`;
@@ -190,14 +234,14 @@ for (const [k, L] of Object.entries(F.LAYOUTS)) {
   const o = document.createElement("option"); o.value = k; o.textContent = L.name; $("layout").appendChild(o);
 }
 $("layout").value = S.layout;
-$("layout").onchange = (e) => { S.layout = e.target.value; store.set("layout", S.layout); fieldCache = null; draw(); };
+$("layout").onchange = (e) => { S.layout = e.target.value; store.set("layout", S.layout); fieldCache = null; runGame(); renderCode(); draw(); };
 function segInit(id, key, after) {
   const el = $(id);
   const paint = () => el.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === S[key]));
   el.onclick = (e) => { const v = e.target.dataset && e.target.dataset.v; if (!v) return; S[key] = v; store.set(key, v); paint(); after && after(); draw(); };
   paint();
 }
-segInit("side", "side", () => { renderCode(); });
+segInit("side", "side", () => { runGame(); renderCode(); });
 segInit("units", "units");
 
 const st = D.stats;
@@ -205,7 +249,30 @@ const late = st.on_time < 100;
 $("stats").innerHTML =
   `<span class="${late ? "bad" : ""}"><b>${st.on_time.toFixed(0)}%</b> on time</span>` +
   `<span>p95 <b>${st.p95.toFixed(2)}s</b></span>` +
-  `<span title="end point spread, p95">±<b>${len(st.end_p95, 1)}</b></span>`;
+  `<span title="end point spread, p95">±<b>${len(st.end_p95, 1)}</b></span>` +
+  `<span id="score" hidden></span>`;
+
+// Points at the buzzer in the clean run, how many varied runs match it, and
+// the auton win point checklist.
+function renderScore() {
+  const el = $("score");
+  if (!el) return;
+  if (!game) { el.hidden = true; return; }
+  const f = game.final;
+  let html = `<b>${f.us}</b> pts`;
+  const finals = gameRuns.map((r) => r.final.us);
+  if (finals.length) {
+    const atLeast = finals.filter((v) => v >= f.us).length / finals.length;
+    html += ` <span title="varied runs scoring at least ${f.us}" class="${atLeast < 0.9 ? "bad" : ""}"><b>${Math.round(atLeast * 100)}%</b></span>`;
+  }
+  if (f.awp) {
+    const items = [["rings", "3 alliance rings"], ["stakes", "2 stakes on our side"], ["line", "off the starting line"], ["ladder", "touching the ladder"]];
+    const missing = items.filter(([k]) => !f.awp[k]).map(([, t]) => t);
+    html += ` <span class="chip ${missing.length ? "miss" : "ok"}" title="${missing.length ? "missing: " + missing.join(", ") : "all four tasks done"}">AWP ${missing.length ? `${4 - missing.length}/4` : "✓"}</span>`;
+  }
+  el.innerHTML = html;
+  el.hidden = false;
+}
 
 function len(v, d) { return F.fmtLen(v, S.units, S.units === "tiles" ? (d == null ? 2 : d + 1) : d); }
 
@@ -226,11 +293,18 @@ function renderCode() {
       if (r.stall >= 1) { bd = `${r.stall.toFixed(0)}% stall`; cls += " warn"; }
       else bd = exitWord(r.exit);
     } else if (r.kind === "action" && r.action != null) {
-      bd = "±" + len(D.actions[r.action].p95, 1);
+      const o = game && game.outcome[r.action];
+      if (o && o.text && o.ok !== null) {
+        const rate = hitRate(r.action);
+        bd = o.text + (rate !== null && rate < 0.98 ? ` ${Math.round(rate * 100)}%` : "");
+        cls += o.ok === false ? " late" : rate !== null && rate < 0.9 ? " warn" : " ok";
+      } else {
+        bd = "±" + len(D.actions[r.action].p95, 1);
+      }
     }
     li.innerHTML = `<span class="ln">${r.line || ""}</span><span class="g"></span><span class="tx"></span><span class="${cls}">${bd}</span>`;
     li.querySelector(".tx").textContent = r.text.replace(/^action\("(.*)"\)$/, "$1");
-    li.title = r.text;
+    li.title = r.text + (r.action != null && game && game.outcome[r.action] && game.outcome[r.action].text ? "\n" + game.outcome[r.action].text : "");
     li.onclick = () => {
       if (r.kind === "action") selectAction(r.action, true);
       else { S.sel = -1; seek(Math.max(0, r.t)); }
@@ -255,8 +329,8 @@ function syncCode(force) {
   lastOn = on;
 }
 
-// why: the two rankings, compact
-(function renderWhy() {
+// why: the two rankings and the score spread, compact
+function renderWhy() {
   const w = D.why || { spread: [], late: [] };
   const top = (xs, f) => xs.slice(0, 3).map(f).join(" · ");
   const short = (n) => n.replace("placement (heading)", "heading").replace("placement (x/y)", "placement").replace("motor response", "motors").replace("L/R mismatch", "L/R").replace("wheel slip", "slip").replace("gyro drift", "gyro");
@@ -264,9 +338,15 @@ function syncCode(force) {
   if (w.spread.length) rows.push(["spread", top(w.spread, ([n, v]) => `${short(n)} ${len(v, 1)}`)]);
   const lateRows = w.late.filter(([, dt]) => dt > 0.05);
   if (lateRows.length) rows.push(["late", top(lateRows, ([n, dt]) => `${short(n)} +${dt.toFixed(2)}s`)]);
+  if (gameRuns.length) {
+    const counts = new Map();
+    for (const r of gameRuns) counts.set(r.final.us, (counts.get(r.final.us) || 0) + 1);
+    const byCount = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0]);
+    rows.push(["score", byCount.slice(0, 3).map(([pts, n]) => `${pts} in ${Math.round((100 * n) / gameRuns.length)}%`).join(" · ")]);
+  }
   $("why").innerHTML = rows.map(([k, v]) => `<div class="row"><span class="k">${k}</span><span>${v}</span></div>`).join("");
-  if (!rows.length) $("why").remove();
-})();
+  $("why").hidden = !rows.length;
+}
 
 // ------------------------------------------------------------------ note (warnings + field-start helper)
 function renderNote() {
@@ -307,7 +387,7 @@ function drawStatic() {
   c.width = c.height = Math.round(size * dpr());
   const g = c.getContext("2d");
   g.scale(dpr(), dpr());
-  F.drawField(g, V, S.layout);
+  F.drawField(g, V, S.layout, { elements: !gameOn() });
   fieldCache = c;
 }
 
@@ -350,22 +430,39 @@ function draw() {
     const [cx, cy] = P(toField([a.at[0], a.at[1], 0]));
     g.setLineDash([4, 3]); g.strokeStyle = "#1fc8f0"; g.lineWidth = 1.5;
     g.beginPath(); g.arc(cx, cy, Math.max(3, a.p95 * V.s), 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
-    callout = [D.instrs[a.i].text.replace(/^action\("(.*)"\)$/, "$1") + "  ±" + len(a.p95, 1), cx, cy - Math.max(3, a.p95 * V.s) - 10];
+    const o = game && game.outcome[S.sel];
+    callout = [actionTexts[S.sel] + "  ±" + len(a.p95, 1) + (o && o.text ? "  · " + o.text : ""), cx, cy - Math.max(3, a.p95 * V.s) - 10];
   }
+
+  // rings and goals as the clean run left them at this moment
+  const gs = game ? GAME.stateAt(game, S.t) : null;
+  if (gs) F.drawElements(g, V, S.layout, gs);
 
   // every varied run at this moment
   const [w, l] = D.robot;
+  const outline = robot ? robot.outline : null;
   for (const run of D.ghosts) {
     const p = sampleAt(run, D.gdt, S.t);
-    if (p) F.drawRobot(g, V, toField(p), { w, l, stroke: "rgba(255,255,255,0.22)", width: 1 });
+    if (p) F.drawRobot(g, V, toField(p), { w, l, outline, stroke: "rgba(255,255,255,0.22)", width: 1 });
   }
 
   // where it started, once it has left
-  if (S.t > 0.05) F.drawRobot(g, V, toField(D.path[0]), { w, l, stroke: "rgba(255,255,255,0.35)", width: 1 });
+  if (S.t > 0.05) F.drawRobot(g, V, toField(D.path[0]), { w, l, outline, stroke: "rgba(255,255,255,0.35)", width: 1 });
 
-  // the clean run
+  // the clean run, with where its mechanisms reach
   const me = sampleAt(D.path, D.dt, S.t);
-  F.drawRobot(g, V, toField(me), { w, l, fill: sideColor(), stroke: "#fff", front: "#fff", width: 1.5, alpha: 0.95 });
+  const zones = [];
+  if (robot && robot.intake) zones.push({ box: robot.intake.zone, color: "rgba(31,200,240,0.9)" });
+  if (robot && robot.clamp) zones.push({ box: robot.clamp.zone, color: "rgba(245,184,0,0.9)" });
+  F.drawRobot(g, V, toField(me), { w, l, outline, zones, fill: sideColor(), stroke: "#fff", front: "#fff", width: 1.5, alpha: 0.95 });
+  if (gs && (gs.inRobot.length || gs.armRing)) {
+    const q = toField(me);
+    if (gs.inRobot.length) F.drawStack(g, V, q[0], q[1], gs.inRobot, 0.8);
+    if (gs.armRing) {
+      const [ax, ay] = GAME.toField(q, 0, l / 2 + 2);
+      F.drawStack(g, V, ax, ay, [gs.armRing], 0.8);
+    }
+  }
   if (callout) label(g, ...callout);
   hud(me);
 }
@@ -420,7 +517,7 @@ fc.addEventListener("pointermove", (e) => {
     if (S.side !== baseSide) x = -x;                 // stored on the base side
     const lim = F.HALF - D.robot[0] / 2;
     S.place = [Math.max(-lim, Math.min(lim, Math.round(x * 2) / 2)), Math.max(-lim, Math.min(lim, Math.round(y * 2) / 2)), S.place[2]];
-    S.placed = true; store.set("place", S.place); renderNote(); showHint();
+    S.placed = true; store.set("place", S.place); renderNote(); showHint(); runGame();
   }
   fc.style.cursor = drag ? "grabbing" : !D.field_start && overStart(px, py) ? "grab" : "default";
   draw();
@@ -444,7 +541,7 @@ fc.addEventListener("dblclick", (e) => {
 function rotateStart(d) {
   if (D.field_start) return;
   S.place = [S.place[0], S.place[1], S.place[2] + (S.side !== baseSide ? -d : d)];
-  S.placed = true; store.set("place", S.place); renderNote(); showHint(); draw();
+  S.placed = true; store.set("place", S.place); renderNote(); showHint(); runGame(); renderCode(); draw();
 }
 
 // ------------------------------------------------------------------ timeline
@@ -566,7 +663,9 @@ window.addEventListener("keydown", (e) => {
 // ------------------------------------------------------------------ go
 function resize() { layout(); tlLayout(); draw(); drawTimeline(); showHint(); }
 window.addEventListener("resize", resize);
+runGame();
 renderCode();
+renderWhy();
 renderNote();
 resize();
 (function fromLink() {

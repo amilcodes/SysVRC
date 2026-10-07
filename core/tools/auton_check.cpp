@@ -34,6 +34,7 @@
 #include "report_template.hpp"
 #include "visbot/auton_file.hpp"
 #include "visbot/plant.hpp"
+#include "visbot/robot_spec.hpp"
 
 using namespace visbot;
 
@@ -52,6 +53,7 @@ struct Disturbances {
     Range slip{0.0, 0.03};        // fraction of wheel travel lost
     double driftSigma = 0.02;     // gyro drift, deg/s, 1-sigma
     Range tau{0.10, 0.14};        // motor time constant, s
+    double tauNominal = 0.12;     // the clean run's, and every run where tau isn't the factor
 };
 
 struct Options {
@@ -67,6 +69,9 @@ struct Options {
     Pose fieldStart;
     bool brief = false;
     std::string field;            // report's default field layer; empty = guess from the name
+    std::string robotPath;        // robot.json; empty = the defaults in constants.hpp
+    bool tauGiven = false;        // --tau: don't derive the range from the robot
+    bool ideal = false;
 };
 
 [[noreturn]] void usage(int code) {
@@ -83,6 +88,8 @@ struct Options {
         "  --brief            one summary line (for checking a folder of autons)\n"
         "  --field NAME       field drawn in the report: high-stakes, high-stakes-skills,\n"
         "                     override, blank (default: from the routine's name)\n"
+        "  --robot FILE       robot.json from tools/robot_studio: drivetrain, footprint,\n"
+        "                     mechanisms (default: the drivetrain in constants.hpp)\n"
         "  --field-start X,Y,H  where the robot really starts, in field inches/degrees\n"
         "                     (origin at field centre, +y toward the far wall). Turns on\n"
         "                     the perimeter walls; needed for routines that push into a\n"
@@ -126,6 +133,7 @@ Options parseArgs(int argc, char** argv) {
         else if (a == "--no-sensitivity") o.sensitivity = false;
         else if (a == "--brief") o.brief = true;
         else if (a == "--field") o.field = val();
+        else if (a == "--robot") o.robotPath = val();
         else if (a == "--field-start") {
             const char* v = val();
             if (std::sscanf(v, "%lf,%lf,%lf", &o.fieldStart.x, &o.fieldStart.y, &o.fieldStart.theta) != 3) {
@@ -140,8 +148,8 @@ Options parseArgs(int argc, char** argv) {
         else if (a == "--mismatch") o.d.mismatchSigma = std::atof(val());
         else if (a == "--slip") o.d.slip = parseRange(val());
         else if (a == "--drift") o.d.driftSigma = std::atof(val());
-        else if (a == "--tau") o.d.tau = parseRange(val());
-        else if (a == "--ideal") o.d = {0, 0, {1, 1}, 0, {0, 0}, 0, {0.12, 0.12}};
+        else if (a == "--tau") { o.d.tau = parseRange(val()); o.tauGiven = true; }
+        else if (a == "--ideal") { o.d = {0, 0, {1, 1}, 0, {0, 0}, 0, {0.12, 0.12}, 0.12}; o.ideal = true; }
         else if (a == "--set") {
             const std::string kv = val();
             const size_t eq = kv.find('=');
@@ -210,13 +218,17 @@ struct Run {
 
 struct Plan {
     MissionDef def;
+    RobotParams physical;                    // the robot as built (plant)
+    RobotParams declared;                    // what the code tells EZ (controller)
+    double encoderScale = 1.0;
     std::vector<int> actionPcs;              // pc of every Action instruction
     std::vector<int> waitPcs;                // pc of every blocking instruction
     int lastMotionWaitPc = -1;               // after this, only delays/actions remain
 };
 
 Plan makePlan(const MissionDef& def) {
-    Plan p{def, {}, {}, -1};
+    Plan p;
+    p.def = def;
     for (int i = 0; i < static_cast<int>(def.mission.size()); ++i) {
         const Instr& in = def.mission[i];
         if (in.op == Instr::Op::Action) p.actionPcs.push_back(i);
@@ -240,12 +252,12 @@ Plan makePlan(const MissionDef& def) {
 
 /// sampleTicks: record the true pose every N control ticks (0 = don't).
 Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double budget, int sampleTicks) {
-    RobotParams rp;
     PlantParams pp = draw.plant;
     pp.walls = plan.def.hasFieldStart;
-    pp.robotHalfIn = rp.robotWidthIn / 2;
-    DiffDrivePlant plant(rp, pp);
-    MotionController ctrl(rp, gains);
+    pp.robotHalfIn = std::max(plan.physical.robotWidthIn, plan.physical.robotLengthIn) / 2;
+    pp.encoderScale = plan.encoderScale;
+    DiffDrivePlant plant(plan.physical, pp);
+    MotionController ctrl(plan.declared, gains);
     // The robot is where the student put it; the code believes odom_xyt_set.
     const Pose& real = plan.def.hasFieldStart ? plan.def.fieldStart : plan.def.start;
     plant.reset({real.x + draw.placement.x, real.y + draw.placement.y, real.theta + draw.placement.theta});
@@ -337,7 +349,7 @@ Draw draw(Sampler& s, const Disturbances& d, int onlyFactor = -1) {
     }
     w.plant.slipFraction = on(kSlip) ? s.uniform(d.slip) : 0.0;
     w.plant.imuDriftDegPerS = on(kDrift) ? s.normal(d.driftSigma) : 0.0;
-    w.plant.motorTauSec = on(kTau) ? s.uniform(d.tau) : 0.12;
+    w.plant.motorTauSec = on(kTau) ? s.uniform(d.tau) : d.tauNominal;
     return w;
 }
 
@@ -347,9 +359,10 @@ constexpr int kNominalSampleTicks = 6;
 constexpr int kGhostSampleTicks = 12;
 constexpr int kGhostRuns = 60;
 
-Draw nominalDraw() {
+Draw nominalDraw(const Disturbances& d) {
     Draw w;
     w.plant.imuNoiseStdDeg = 0.0;
+    w.plant.motorTauSec = d.tauNominal;
     return w;
 }
 
@@ -426,15 +439,36 @@ int main(int argc, char** argv) {
                                "meaningful. Pass --field-start X,Y,HEADING (or add # @field_start to the file).");
     }
 
+    // The robot as built, if we have its robot.json.
+    RobotSpec robot;
+    const bool haveRobot = !o.robotPath.empty();
+    if (haveRobot) {
+        const RobotSpecResult rr = loadRobotSpec(o.robotPath);
+        if (!rr.ok()) {
+            for (const auto& e : rr.errors) std::fprintf(stderr, "%s: %s\n", o.robotPath.c_str(), e.c_str());
+            return 2;
+        }
+        robot = rr.spec;
+        const double t = robot.motorTauSec;
+        o.d.tauNominal = t;
+        if (o.ideal) o.d.tau = {t, t};
+        else if (!o.tauGiven) o.d.tau = {t * 0.83, t * 1.17};
+    }
+
     DriveGains gains;
     for (const auto& [k, v] : o.gainSets) {
         if (!applyGain(gains, k, v)) { std::fprintf(stderr, "unknown gain '%s'\n", k.c_str()); return 2; }
     }
 
-    const Plan plan = makePlan(def);
+    Plan plan = makePlan(def);
+    if (haveRobot) {
+        plan.physical = robot.physical;
+        plan.declared = robot.declared;
+        plan.encoderScale = robot.encoderScale;
+    }
 
     // Nominal run: nothing disturbed. Everything else is measured against it.
-    const Run nominal = simulate(plan, gains, nominalDraw(), o.budget, kNominalSampleTicks);
+    const Run nominal = simulate(plan, gains, nominalDraw(o.d), o.budget, kNominalSampleTicks);
 
     // Disturbed runs.
     Sampler sampler(o.seed);
@@ -561,8 +595,19 @@ int main(int argc, char** argv) {
                     !warnings.empty() ? "needs --field-start" : overWhere.empty() ? "" : ("over at " + overWhere).c_str());
         return 0;
     }
-    std::printf("%s: %zu instructions, %zu mechanism calls, %d runs\n\n", def.name.c_str(), def.mission.size(),
+    std::printf("%s: %zu instructions, %zu mechanism calls, %d runs\n", def.name.c_str(), def.mission.size(),
                 plan.actionPcs.size(), o.runs);
+    if (haveRobot) {
+        const RobotParams& rp = plan.physical;
+        std::printf("robot   %s: %.2f in wheels @ %.0f rpm (%.0f in/s), track %.1f in, %.1fx%.1f in, response %.2f s\n",
+                    robot.name.c_str(), rp.wheelDiameterIn, rp.wheelRpm, rp.maxWheelSpeedInPerSec(), rp.trackWidthIn,
+                    rp.robotWidthIn, rp.robotLengthIn, robot.motorTauSec);
+        if (std::fabs(plan.encoderScale - 1.0) > 0.005)
+            std::printf("        the code tells EZ %.2f in @ %.0f rpm, so odometry reads %.1f%% %s than the robot moves\n",
+                        plan.declared.wheelDiameterIn, plan.declared.wheelRpm, std::fabs(plan.encoderScale - 1.0) * 100,
+                        plan.encoderScale < 1 ? "shorter" : "longer");
+    }
+    std::printf("\n");
     std::printf("time    nominal %.2f s   p50 %.2f s   p95 %.2f s   worst %.2f s   (limit %.0f s)\n",
                 nominal.motionEnd, percentile(motionEnd, 0.5), percentile(motionEnd, 0.95),
                 *std::max_element(motionEnd.begin(), motionEnd.end()), o.budget);
@@ -635,13 +680,14 @@ int main(int argc, char** argv) {
                                : def.name.find(".blue") != std::string::npos ? "blue" : "";
     const std::string field = !o.field.empty() ? o.field
                             : def.name.find("skills") != std::string::npos ? "high-stakes-skills" : "high-stakes";
-    RobotParams rp;
+    const RobotParams& rp = plan.physical;
 
     std::ostringstream j;
     j << "{\"v\":2,\"name\":\"" << jsonEscape(def.name) << "\",\"source\":\"" << jsonEscape(o.auton) << "\""
       << ",\"runs\":" << o.runs << ",\"seed\":" << o.seed << ",\"budget\":" << num(o.budget, 1)
       << ",\"field\":\"" << field << "\",\"alliance\":" << (alliance.empty() ? "null" : "\"" + alliance + "\"")
       << ",\"robot\":[" << num(rp.robotWidthIn, 1) << "," << num(rp.robotLengthIn, 1) << "]"
+      << ",\"spec\":" << (haveRobot ? robot.json : std::string("null"))
       << ",\"start\":";
     pose3(j, def.start, 2);
     j << ",\"field_start\":";
@@ -664,6 +710,16 @@ int main(int argc, char** argv) {
         if (runs[i].traj.empty()) continue;
         j << (n++ ? "," : "") << "[";
         for (size_t k = 0; k < runs[i].traj.size(); ++k) { if (k) j << ","; pose3(j, runs[i].traj[k], 1); }
+        j << "]";
+    }
+    // when each ghost run fired each mechanism call (-1: never), for the
+    // report's game-element sim
+    j << "],\"gact\":[";
+    for (size_t i = 0, n = 0; i < runs.size(); ++i) {
+        if (runs[i].traj.empty()) continue;
+        j << (n++ ? "," : "") << "[";
+        for (size_t a = 0; a < runs[i].actions.size(); ++a)
+            j << (a ? "," : "") << (runs[i].actions[a].fired ? num(runs[i].actions[a].t, 2) : std::string("-1"));
         j << "]";
     }
     j << "],\"instrs\":[";
@@ -715,7 +771,7 @@ int main(int argc, char** argv) {
         std::printf("\nwrote %s\n", o.jsonPath.c_str());
     }
     if (!o.htmlPath.empty()) {
-        std::string html = kReportTemplate;
+        std::string html = reportTemplate();
         const std::string marker = "/*REPORT_DATA*/null";
         const size_t at = html.find(marker);
         if (at == std::string::npos) { std::fprintf(stderr, "report template is missing its data marker\n"); return 1; }

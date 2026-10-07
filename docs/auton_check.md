@@ -99,6 +99,10 @@ If a routine zeroes odom (`odom_xyt_set(0, 0, h)`), the report doesn't know wher
 
 Keys: space plays, ←/→ step (shift for 1 s), Home/End. Put `#t=9.3` on the end of the URL to open it at that moment, which is handy for sending to a teammate.
 
+### With your robot
+
+`--robot robots/<name>/robot.json` (from the [robot studio](robot_studio.md)) does two things. The drivetrain becomes yours: wheel size, gearing, track width, size and response time, and odometry uses what your code declares, so a code/CAD mismatch shows up as drift. And the report runs the game elements. The field shows rings being picked up and goals being clamped and carried. Each mechanism call says what it did ("clamped", "missed, goal 6.3″ away", "+2 rings", "alliance stake") with how often across the varied runs, and the header shows points at the buzzer, how many runs score that much, and the auton win point checklist. It's recomputed when you drag the start or flip the alliance.
+
 ## Limits
 
 Worth knowing before you trust a number:
