@@ -45,13 +45,26 @@ The report is the field with your routine on it. Scrub the timeline and all the 
 
 More on the disturbance model, the flags, the report, and what the numbers can and can't tell you: [docs/auton_check.md](docs/auton_check.md).
 
+## Your robot in the sim
+
+By default the sim drives a generic 15 in box with our drivetrain. The robot studio swaps in yours. Drop in a STEP export of the CAD and it reads the parts: motors and cartridges, wheels, gear teeth, pistons, sensors. It works out the drivetrain and where each mechanism is, and reads your code for the chassis constructor, motor names and helpers. With an `ANTHROPIC_API_KEY` it has Claude look at renders of the robot plus the code to work out what each mechanism is and what `ChangeLBState(EXTENDED)` actually does. You check it, fix what's wrong, and save.
+
+```bash
+python3 -m pip install -r tools/robot_studio/requirements.txt
+python3 tools/robot_studio serve                    # http://localhost:8090
+build/core/auton_check autons/state_solo_awp.blue.auton --robot robots/ours/robot.json --html report.html
+```
+
+With a robot, the report runs the game elements too. It shows the rings your intake picks up, the goals your clamp gets (or misses, and by how much), what the lady brown scores, points at the buzzer and the AWP checklist, across all the varied runs. Paths drawn in path.jerryio import with `tools/path_import.py`. More in [docs/robot_studio.md](docs/robot_studio.md), and the file format in [docs/robot_spec.md](docs/robot_spec.md).
+
 ## What lives where
 
 ```text
 SysVRC/
   core/    the drive controllers (header-only C++, no deps) + auton_check
   autons/  our routines as .auton files, generated from v5/src by the importer
-  tools/   ez_import.py, build_web.py
+  robots/  robot.json for each robot the sim knows (ours, plus whatever the studio saves)
+  tools/   ez_import.py, path_import.py, build_web.py, robot_studio/
   web/     the report page and the field drawing (build_web.py bakes them into auton_check + the dashboard)
   sim/     ROS 2 workspace (control loop, gazebo model + field, dashboard, scripts)
   v5/      our PROS competition code, same as it always was
@@ -123,7 +136,7 @@ Then open http://localhost:8080. You get the field with the robot where it reall
 
 `mission:=` takes the name of anything in `autons/` (`worlds_mogo_rush.blue`), a path to an `.auton` file, or one of the built-ins (`skills`, `square`, `chain`). The robot spawns where the routine starts: its `# @field_start` if it has one, otherwise its `odom_xyt_set`.
 
-Other launch args: `sched:=fifo|rr|other`, `cpu:=N` (pin the loop to a core), `poll_idle:=true`, `spin_us:=N`, `dash:=false`, `record:=file.jsonl`. Gazebo also takes `gui:=true`, but that needs an X display. On a Mac it's easier to just use the dashboard.
+`robot:=robots/<name>` runs a robot from the studio instead of the default drivebase: its wheels, size and speed in Gazebo with its CAD as the visual, and live scoring on the dashboard. Other launch args: `sched:=fifo|rr|other`, `cpu:=N` (pin the loop to a core), `poll_idle:=true`, `spin_us:=N`, `dash:=false`, `record:=file.jsonl`. Gazebo also takes `gui:=true`, but that needs an X display. On a Mac it's easier to just use the dashboard.
 
 ## Tests
 
@@ -134,7 +147,12 @@ cmake -S core -B build/core && cmake --build build/core && ctest --test-dir buil
 python3 -m unittest discover -s tools/tests
 ```
 
-That's 68 core tests (closed-loop convergence for every motion type, each EZ quirk, kD/kI giving the same result at 100 Hz and 120 Hz, every imported routine running start to finish), 4 auton_check checks, 17 importer tests, and a check that the generated web files are up to date (edit `web/`, then run `python3 tools/build_web.py`).
+That's 76 core tests (closed-loop convergence for every motion type, each EZ quirk, kD/kI giving the same result at 100 Hz and 120 Hz, every imported routine running start to finish, robot.json parsing), 4 auton_check checks, 17 importer tests, 7 path import tests, and a check that the generated web files are up to date (edit `web/`, then run `python3 tools/build_web.py`). The studio and the element sim have their own:
+
+```bash
+python3 -m unittest discover -s tools/robot_studio/tests     # 26, on a fixture robot whose parts are known
+node --test web/tests/                                       # 9, the High Stakes element sim
+```
 
 Everything else, plus the end-to-end checks over real ROS topics and in Gazebo:
 

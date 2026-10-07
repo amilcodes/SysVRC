@@ -19,6 +19,12 @@ jobs:
       - run: ctest --test-dir build/core --output-on-failure
       - name: every imported routine, one line each
         run: for f in autons/*.auton; do build/core/auton_check "$f" --runs 100 --brief; done
+      - name: our robot's spec drives the sim
+        run: build/core/auton_check autons/skills.auton --robot robots/ours/robot.json --runs 50 --brief
+      - name: path.jerryio import, end to end (needs auton_check)
+        run: python3 -m unittest tools/tests/test_path_import.py -v
+      - name: game element sim (web/game.js)
+        run: node --test web/tests/
 
   importer:
     name: tools (autons/ and generated web files up to date)
@@ -28,6 +34,16 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: python -W error::ResourceWarning -m unittest discover -s tools/tests -v
+
+  studio:
+    name: robot studio (CAD -> robot.json)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r tools/robot_studio/requirements.txt
+      - run: python -m unittest discover -s tools/robot_studio/tests -v
 
   sim:
     name: sim (ROS 2 Jazzy + Gazebo Harmonic)
