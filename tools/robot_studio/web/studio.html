@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>robot studio</title>
+<style>
+  :root {
+    --bg: #0f1114; --panel: #14171b; --raise: #1b1f25; --line: #252a31;
+    --ink: #e7eaee; --ink2: #a6aeb8; --muted: #6c7480;
+    --amber: #f5b800; --cyan: #1fc8f0; --red: #d8423b; --blue: #2f7fd8; --late: #e5534b; --ok: #4fbf7a;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  #app { display: grid; grid-template-rows: 44px 1fr; grid-template-columns: minmax(0, 1fr); height: 100vh; }
+
+  header { display: flex; align-items: center; gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); white-space: nowrap; min-width: 0; }
+  .brand { font: 600 12px var(--mono); color: var(--muted); }
+  .name { font: 600 13px var(--mono); overflow: hidden; text-overflow: ellipsis; }
+  .tag { font: 12px var(--mono); color: var(--ink2); }
+  .tag.warn { color: var(--amber); }
+  .grow { flex: 1; }
+  .btn { background: var(--raise); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; font: 12px var(--mono); color: var(--ink); }
+  .btn:hover:not(:disabled) { border-color: #3a414b; }
+  .btn:disabled { color: var(--muted); cursor: default; }
+  .btn.go { background: #3a2f0a; border-color: #5a4810; color: var(--amber); }
+  .btn.go:disabled { background: var(--raise); border-color: var(--line); color: var(--muted); }
+
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 430px; min-height: 0; }
+  #stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+  #view { position: absolute; inset: 0; }
+  #view canvas { display: block; }
+  #drop { position: absolute; inset: 24px; border: 1.5px dashed #3a414b; border-radius: 12px; display: grid; place-items: center; text-align: center; }
+  #drop.over { border-color: var(--amber); background: rgba(245,184,0,0.04); }
+  #drop h2 { margin: 0 0 6px; font: 600 16px var(--mono); }
+  #drop p { margin: 3px 0; color: var(--ink2); font: 12px var(--mono); }
+  #drop .or { margin-top: 14px; }
+  #busy { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font: 12px var(--mono); color: var(--amber); background: rgba(20,23,27,0.94); border: 1px solid #4a3d12; border-radius: 6px; padding: 5px 12px; }
+  #err { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); max-width: 80%; font: 12px var(--mono); color: var(--late); background: rgba(20,23,27,0.96); border: 1px solid #5a2622; border-radius: 6px; padding: 5px 12px; white-space: pre-wrap; }
+  .overlay { position: absolute; font: 12px var(--mono); color: var(--ink2); }
+  #tabs { top: 10px; left: 12px; display: flex; gap: 4px; }
+  #tabs button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; color: var(--ink2); font: 12px var(--mono); }
+  #tabs button.on { color: var(--ink); background: var(--raise); }
+  #framebox { top: 10px; right: 12px; display: flex; gap: 6px; align-items: center; background: rgba(20,23,27,0.85); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+  #framebox select { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; font: 12px var(--mono); padding: 1px 3px; }
+  #legend { bottom: 10px; left: 12px; display: flex; flex-wrap: wrap; gap: 10px; max-width: 70%; }
+  #legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  #why { bottom: 10px; right: 12px; text-align: right; color: var(--muted); max-width: 45%; }
+  #hover { pointer-events: none; background: #0b0d10; border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; color: var(--ink); }
+  #renders { position: absolute; inset: 44px 12px 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; overflow: auto; }
+  #renders img { width: 100%; border-radius: 6px; border: 1px solid var(--line); }
+
+  aside { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; min-height: 0; }
+  section { border-bottom: 1px solid var(--line); padding: 10px 14px 12px; }
+  section h3 { margin: 0 0 8px; font: 600 11px var(--mono); color: var(--muted); text-transform: lowercase; letter-spacing: 0.04em; display: flex; gap: 8px; align-items: center; }
+  section h3 .grow { flex: 1; }
+  .grid { display: grid; grid-template-columns: 96px 1fr 1fr; gap: 4px 8px; align-items: center; font: 12px var(--mono); }
+  .grid label { color: var(--ink2); }
+  .grid .code { color: var(--muted); font-size: 11px; }
+  .grid .code.diff { color: var(--amber); }
+  input.num, input.txt, select.sel { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 2px 5px; font: 12px var(--mono); }
+  input.num { text-align: right; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: #4a5260; }
+  .mech { border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; margin-bottom: 6px; background: var(--bg); }
+  .mech .top { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; }
+  .mech .sw { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+  .mech .rm { margin-left: auto; background: none; border: 0; color: var(--muted); cursor: pointer; font: 12px var(--mono); }
+  .mech .rm:hover { color: var(--late); }
+  .row { display: grid; grid-template-columns: 70px 1fr; gap: 4px 8px; align-items: center; font: 12px var(--mono); margin-top: 3px; }
+  .row label { color: var(--ink2); }
+  .zone { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  table.bind { width: 100%; border-collapse: collapse; font: 11.5px var(--mono); }
+  table.bind td { padding: 2px 2px; vertical-align: middle; }
+  table.bind input, table.bind select { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; font: 11.5px var(--mono); }
+  .list { margin: 0; padding: 0; list-style: none; font: 12px var(--mono); }
+  .list li { padding: 2px 0; color: var(--ink2); }
+  .list.q li { color: var(--amber); }
+  .list.q li::before { content: "? "; color: var(--muted); }
+  .list.ev li b { color: var(--ink); font-weight: 500; }
+  .unb { font: 11px var(--mono); color: var(--muted); margin-top: 6px; }
+  .unb code { color: var(--ink2); }
+  .sub { font: 11px var(--mono); color: var(--muted); }
+  .okline { font: 12px var(--mono); color: var(--ok); margin-top: 6px; }
+  .badline { font: 12px var(--mono); color: var(--late); margin-top: 6px; white-space: pre-wrap; }
+  pre.sum { font: 11px var(--mono); color: var(--ink2); white-space: pre-wrap; max-height: 180px; overflow: auto; margin: 6px 0 0; }
+  .runrow { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; grid-template-rows: minmax(320px, 50vh) auto; }
+    aside { border-left: 0; border-top: 1px solid var(--line); }
+    header { flex-wrap: wrap; padding: 6px 12px; row-gap: 6px; }
+    #app { grid-template-rows: auto 1fr; }
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="app">
+  <header>
+    <span class="brand">robot studio</span>
+    <span class="name" id="fname">no robot yet</span>
+    <span class="tag" id="fmeta"></span>
+    <span class="grow"></span>
+    <span class="tag" id="aitag"></span>
+    <button class="btn go" id="analyze" disabled title="send the renders, parts table and code to Claude">analyze with Claude</button>
+    <button class="btn" id="save" disabled>save robot</button>
+  </header>
+  <main>
+    <section id="stage" style="padding:0;border:0">
+      <div id="view"></div>
+      <div id="drop">
+        <div>
+          <h2>drop your robot's CAD here</h2>
+          <p>STEP from Onshape, Fusion or Inventor works best: it keeps the part names</p>
+          <p>STL, OBJ, GLB, PLY, 3MF work too (shape only)</p>
+          <p class="or"><button class="btn" id="pick">choose a file</button> <button class="btn" id="codeonly">start from code only</button></p>
+          <input type="file" id="file" hidden accept=".step,.stp,.iges,.igs,.stl,.obj,.glb,.gltf,.ply,.3mf,.off">
+        </div>
+      </div>
+      <div class="overlay" id="tabs" hidden><button data-v="3d" class="on">3d</button><button data-v="renders">what Claude sees</button></div>
+      <div class="overlay" id="framebox" hidden>
+        <span>up</span><select id="up"></select><span>front</span><select id="front"></select>
+        <button class="btn" id="flip" title="the front is the other end">flip</button>
+      </div>
+      <div class="overlay" id="renders" hidden></div>
+      <div class="overlay" id="legend" hidden></div>
+      <div class="overlay" id="why" hidden></div>
+      <div class="overlay" id="hover" hidden></div>
+      <div id="busy" hidden></div>
+      <div id="err" hidden></div>
+    </section>
+    <aside id="rail">
+      <section><h3>drive<span class="grow"></span><span class="sub" id="drivesrc"></span></h3><div class="grid" id="drive"></div></section>
+      <section><h3>mechanisms<span class="grow"></span><button class="btn" id="addmech">+ add</button></h3><div id="mechs"></div></section>
+      <section><h3>what the routines' mechanism calls do<span class="grow"></span><button class="btn" id="addbind">+ add</button></h3>
+        <table class="bind" id="binds"></table><div class="unb" id="unbound"></div></section>
+      <section id="notes" hidden><h3>check these</h3><ul class="list q" id="questions"></ul>
+        <h3 style="margin-top:10px">why</h3><ul class="list ev" id="evidence"></ul></section>
+      <section><h3>save, then run a routine with it</h3>
+        <div class="runrow" style="margin-bottom:6px"><input class="txt" id="rname" placeholder="robot name"><button class="btn" id="save2" disabled>save</button></div>
+        <div class="runrow"><select class="sel" id="routine"></select><button class="btn" id="run" disabled>run</button></div>
+        <div class="sub" id="runnote">save the robot first</div><pre class="sum" id="runsum" hidden></pre></section>
+    </aside>
+  </main>
+</div>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const $ = (id) => document.getElementById(id);
+const KIND_COLORS = {
+  motor: "#d8423b", wheel: "#474b51", tracking_wheel: "#6e6e78", flex_wheel: "#1fc8f0", gear: "#f5b800", sprocket: "#f5b800",
+  chain: "#1fa0c8", pneumatic: "#2f7fd8", air_tank: "#2f7fd8", solenoid: "#2f7fd8", brain: "#25282d", battery: "#25282d",
+  radio: "#25282d", sensor: "#aa6ee6", structure: "#a0a6af", other: "#80868f",
+};
+const MECH_COLORS = { intake: "#1fc8f0", goal_clamp: "#f5b800", wall_stake_arm: "#e7eaee", lift: "#7fa7d8", doinker: "#aa6ee6",
+                      color_sort: "#4fbf7a", flywheel: "#d8423b", catapult: "#d8423b", hang: "#a6aeb8", other: "#a6aeb8" };
+const KINDS = ["intake", "goal_clamp", "wall_stake_arm", "lift", "doinker", "color_sort", "flywheel", "catapult", "hang", "other"];
+const OPS = ["speed", "toggle", "set", "state", "angle", "until", "release"];
+const AXES = ["+x", "-x", "+y", "-y", "+z", "-z"];
+
+const S = { session: null, data: null, spec: null, saved: null };
+
+// ------------------------------------------------------------------ server
+async function api(path, body, raw) {
+  const r = await fetch(path, { method: "POST", body: raw ? body : JSON.stringify(body || {}) });
+  const j = await r.json();
+  if (!r.ok || j.error) throw new Error(j.error || r.statusText);
+  return j;
+}
+function busy(msg) { $("busy").hidden = !msg; $("busy").textContent = msg || ""; }
+function fail(e) { busy(null); $("err").hidden = false; $("err").textContent = String(e.message || e); setTimeout(() => ($("err").hidden = true), 9000); }
+
+// ------------------------------------------------------------------ load
+const drop = $("drop");
+drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); });
+$("pick").onclick = () => $("file").click();
+$("file").onchange = (e) => e.target.files[0] && upload(e.target.files[0]);
+$("codeonly").onclick = async () => {
+  try { busy("reading the code"); show(await api("/api/load", null, true)); } catch (e) { fail(e); }
+};
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); });
+
+async function upload(file) {
+  try {
+    busy(`reading ${file.name} (${(file.size / 1e6).toFixed(1)} MB)`);
+    const buf = await file.arrayBuffer();
+    show(await api("/api/load?name=" + encodeURIComponent(file.name), buf, true));
+  } catch (e) { fail(e); }
+}
+
+function show(d) {
+  busy(null);
+  S.session = d.session; S.data = d; S.spec = structuredClone(d.spec); S.saved = null;
+  $("fname").textContent = d.cad ? d.cad.file : "code only";
+  $("fmeta").textContent = d.cad ? `${d.cad.format} · ${d.cad.triangles.toLocaleString()} triangles${d.cad.named ? "" : " · no part names"}` : `${d.code.files.length} code files`;
+  $("aitag").textContent = d.ai ? d.model : "no ANTHROPIC_API_KEY";
+  $("aitag").title = d.ai ? "" : "export ANTHROPIC_API_KEY=... and restart the studio to have Claude analyse the robot";
+  $("aitag").className = "tag" + (d.ai ? "" : " warn");
+  $("analyze").disabled = !d.ai;
+  $("save").disabled = $("save2").disabled = false;
+  $("rname").value = d.spec.name || d.name || "robot";
+  $("drop").hidden = true;
+  $("tabs").hidden = $("framebox").hidden = $("legend").hidden = $("why").hidden = !d.cad;
+  if (d.cad) {
+    for (const id of ["up", "front"]) {
+      $(id).innerHTML = AXES.map((a) => `<option>${a}</option>`).join("");
+    }
+    $("up").value = d.cad.frame.up; $("front").value = d.cad.frame.forward;
+    $("why").innerHTML = d.cad.why.map((w) => `<div>${esc(w)}</div>`).join("");
+    const kinds = Object.keys(d.cad.summary).filter((k) => k !== "other" && k !== "structure");
+    $("legend").innerHTML = kinds.map((k) => `<span><i style="background:${KIND_COLORS[k]}"></i>${d.cad.summary[k]} ${k.replace("_", " ")}</span>`).join("");
+    $("renders").innerHTML = d.cad.views.map((u) => `<img src="${u}?${Date.now()}">`).join("");
+    loadModel(d.cad.glb, d.cad.map);
+  } else {
+    $("drop").hidden = false;
+  }
+  renderRail();
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+// frame fixes
+async function reframe(up, forward) {
+  try { busy("re-measuring"); const keep = S.spec; show(await api("/api/frame", { session: S.session, up, forward })); } catch (e) { fail(e); }
+}
+$("up").onchange = () => reframe($("up").value, null);
+$("front").onchange = () => reframe($("up").value, $("front").value);
+$("flip").onclick = () => { const f = $("front").value; reframe($("up").value, (f[0] === "+" ? "-" : "+") + f[1]); };
+$("tabs").onclick = (e) => {
+  const v = e.target.dataset.v; if (!v) return;
+  $("tabs").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+  $("renders").hidden = v !== "renders";
+};
+
+// ------------------------------------------------------------------ 3d
+const view = $("view");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio || 1);
+renderer.setClearColor(0x0f1114);
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 50);
+camera.position.set(0.6, 0.42, -0.62);   // front-right (robot +y is three -z)
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.12, 0);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(1, 2, 1.5); scene.add(sun);
+// robot frame (x right, y forward, z up) -> three (y up)
+const robotRoot = new THREE.Group(); robotRoot.rotation.x = -Math.PI / 2; scene.add(robotRoot);
+const IN = 0.0254;
+// floor: four field tiles
+{
+  const tiles = new THREE.Group();
+  for (let i = -1; i < 1; i++) for (let j = -1; j < 1; j++) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(24 * IN - 0.002, 24 * IN - 0.002), new THREE.MeshStandardMaterial({ color: 0x4f535a, roughness: 1 }));
+    m.position.set((i + 0.5) * 24 * IN, (j + 0.5) * 24 * IN, -0.001);
+    tiles.add(m);
+  }
+  robotRoot.add(tiles);
+}
+let model = null;
+const zoneGroup = new THREE.Group(); robotRoot.add(zoneGroup);
+function resize() {
+  const r = view.getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false);
+  renderer.domElement.style.width = r.width + "px"; renderer.domElement.style.height = r.height + "px";
+  camera.aspect = r.width / Math.max(1, r.height); camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize); resize();
+(function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+
+function loadModel(url, map) {
+  new GLTFLoader().load(url + "?" + Date.now(), (g) => {
+    if (model) robotRoot.remove(model);
+    model = g.scene;
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      const info = map[o.name] || map[o.parent && o.parent.name] || {};
+      o.userData.info = info;
+      if (!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
+      o.material = new THREE.MeshStandardMaterial({ color: KIND_COLORS[info.kind] || KIND_COLORS.other, roughness: 0.75,
+                                                    metalness: 0.05, flatShading: true, side: THREE.DoubleSide });
+    });
+    // the studio wrote the GLB in robot-frame coordinates (z up); robotRoot turns that into three's y-up
+    robotRoot.add(model);
+    // frame the whole robot, from the front right
+    const box = new THREE.Box3().setFromObject(model);
+    const c = box.getCenter(new THREE.Vector3()), r = box.getSize(new THREE.Vector3()).length();
+    controls.target.copy(c);
+    camera.position.copy(c).add(new THREE.Vector3(0.62, 0.42, -0.66).normalize().multiplyScalar(r * 2.1));
+    controls.update();
+    drawZones();
+  });
+}
+
+// mechanism zones on the floor
+function drawZones() {
+  zoneGroup.clear();
+  for (const m of (S.spec && S.spec.mechanisms) || []) {
+    for (const key of ["zone", "reach"]) {
+      const z = m[key];
+      if (!z) continue;
+      const [[x0, y0], [x1, y1]] = z;
+      const w = Math.abs(x1 - x0) * IN, l = Math.abs(y1 - y0) * IN, h = (key === "reach" ? 0.4 : 1.2) * IN;
+      const geo = new THREE.BoxGeometry(w, l, h);
+      const mat = new THREE.MeshBasicMaterial({ color: MECH_COLORS[m.kind] || "#fff", transparent: true, opacity: 0.28, depthWrite: false });
+      const box = new THREE.Mesh(geo, mat);
+      box.position.set(((x0 + x1) / 2) * IN, ((y0 + y1) / 2) * IN, key === "reach" ? 14 * IN : h / 2);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: MECH_COLORS[m.kind] || "#fff" }));
+      edges.position.copy(box.position);
+      zoneGroup.add(box, edges);
+    }
+  }
+}
+
+// hover a part
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+renderer.domElement.addEventListener("pointermove", (e) => {
+  if (!model) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(mouse, camera);
+  const hit = ray.intersectObject(model, true)[0];
+  const h = $("hover");
+  if (hit && hit.object.userData.info && hit.object.userData.info.name) {
+    const i = hit.object.userData.info;
+    h.hidden = false;
+    h.textContent = `${i.tag ? "#" + i.tag + " " : ""}${i.name} · ${i.kind}`;
+    h.style.left = e.clientX - r.left + 14 + "px"; h.style.top = e.clientY - r.top + 10 + "px";
+  } else h.hidden = true;
+});
+
+// ------------------------------------------------------------------ rail
+function num(v) { return v === undefined || v === null || v === "" ? "" : v; }
+function renderRail() {
+  const s = S.spec, d = s.drive || (s.drive = {}), code = s.code || {};
+  const cadD = (S.data.cad && S.data.cad.measures.drive) || {};
+  const row = (label, key, opts = {}) => {
+    const v = d[key];
+    const cv = opts.code !== undefined ? opts.code : code[key];
+    const diff = cv !== undefined && v !== undefined && Math.abs(cv - v) > (opts.tol || 0.01);
+    const input = opts.options
+      ? `<select class="sel" data-k="${key}">${opts.options.map((o) => `<option ${String(o) === String(v) ? "selected" : ""}>${o}</option>`).join("")}</select>`
+      : `<input class="num" data-k="${key}" value="${num(v)}" ${opts.ro ? "readonly" : ""}>`;
+    return `<label>${label}</label>${input}<span class="code ${diff ? "diff" : ""}">${cv !== undefined ? "code " + cv : cadD[key] !== undefined && cadD[key] !== v ? "cad " + cadD[key] : ""}</span>`;
+  };
+  $("drive").innerHTML =
+    row("type", "type", { options: ["tank", "x", "mecanum", "h", "asterisk", "other"], code: undefined }) +
+    row("wheel in", "wheel_diameter") +
+    row("cartridge", "cartridge_rpm", { options: [100, 200, 600] }) +
+    row("ratio", "ratio", { code: code.cartridge_rpm && code.wheel_rpm ? +(code.wheel_rpm / code.cartridge_rpm).toFixed(4) : undefined, tol: 0.005 }) +
+    row("wheel rpm", "wheel_rpm", { ro: true, tol: 2 }) +
+    row("track in", "track_width") +
+    row("wheelbase", "wheelbase", { code: undefined }) +
+    row("motors/side", "motors_per_side", { code: undefined }) +
+    `<label>size in</label><input class="num" data-f="width" value="${num(s.footprint.width)}"><input class="num" data-f="length" value="${num(s.footprint.length)}">` +
+    `<label>mass lb</label><input class="num" data-m="1" value="${num(s.mass_lb)}"><span></span>`;
+  $("drivesrc").textContent = code.where ? "code: " + code.where : "";
+  $("drive").querySelectorAll("[data-k]").forEach((el) => (el.onchange = () => {
+    const k = el.dataset.k, v = el.tagName === "SELECT" && k === "type" ? el.value : parseFloat(el.value);
+    d[k] = v;
+    if ((k === "cartridge_rpm" || k === "ratio") && d.cartridge_rpm && d.ratio) d.wheel_rpm = +(d.cartridge_rpm * d.ratio).toFixed(1);
+    renderRail();
+  }));
+  $("drive").querySelectorAll("[data-f]").forEach((el) => (el.onchange = () => { s.footprint[el.dataset.f] = parseFloat(el.value); }));
+  $("drive").querySelector("[data-m]").onchange = (e) => { s.mass_lb = parseFloat(e.target.value); };
+
+  // mechanisms
+  const mechs = s.mechanisms || (s.mechanisms = []);
+  $("mechs").innerHTML = "";
+  mechs.forEach((m, i) => {
+    const el = document.createElement("div");
+    el.className = "mech";
+    const z = m.zone || null, r = m.reach || null;
+    const zoneInputs = (key, box) => `<div class="row"><label>${key}</label><div class="zone">${[0, 1].flatMap((a) => [0, 1].map((b) =>
+      `<input class="num" data-z="${key}" data-a="${a}" data-b="${b}" value="${box ? box[a][b] : ""}" title="${["x0", "y0", "x1", "y1"][a * 2 + b]}">`)).join("")}</div></div>`;
+    el.innerHTML = `<div class="top"><span class="sw" style="background:${MECH_COLORS[m.kind] || "#fff"}"></span>
+        <input class="txt" data-p="id" value="${esc(m.id)}" style="width:110px">
+        <select class="sel" data-p="kind" style="width:130px">${KINDS.map((k) => `<option ${k === m.kind ? "selected" : ""}>${k}</option>`).join("")}</select>
+        <button class="rm" title="remove">×</button></div>
+      <div class="row"><label>code</label><input class="txt" data-p="code_names" value="${esc((m.code_names || []).join(", "))}" placeholder="intake, mogoClamp"></div>
+      ${["intake", "goal_clamp"].includes(m.kind) || m.zone ? zoneInputs("zone", z) : ""}
+      ${m.kind === "intake" ? `<div class="row"><label>holds</label><div class="zone"><input class="num" data-p="capacity" value="${num(m.capacity)}" title="rings"><input class="num" data-p="transfer_s" value="${num(m.transfer_s)}" title="s floor to top"><span class="sub">rings · s up</span></div></div>` : ""}
+      ${m.kind === "goal_clamp" ? `<div class="row"><label>clamps</label><select class="sel" data-p="closed_when"><option value="true" ${m.closed_when !== false ? "selected" : ""}>when extended</option><option value="false" ${m.closed_when === false ? "selected" : ""}>when retracted</option></select></div>` : ""}
+      ${m.kind === "wall_stake_arm" ? `${zoneInputs("reach", r)}<div class="row"><label>angles</label><input class="txt" data-p="states" value="${esc(Object.entries(m.states || {}).map(([k, v]) => k + " " + v).join(", "))}" placeholder="REST 0, LOAD 27, SCORE 177"></div>
+        <div class="row"><label>load / score</label><div class="zone"><input class="txt" data-p="load_state" value="${esc(m.load_state || "")}"><input class="num" data-p="score_deg" value="${num(m.score_deg)}"><input class="num" data-p="deg_per_s" value="${num(m.deg_per_s)}" title="deg/s"><span class="sub">deg · deg/s</span></div></div>` : ""}
+      ${m.notes ? `<div class="sub" style="margin-top:4px">${esc(m.notes)}</div>` : ""}`;
+    el.querySelector(".rm").onclick = () => { mechs.splice(i, 1); renderRail(); drawZones(); };
+    el.querySelectorAll("[data-p]").forEach((inp) => (inp.onchange = () => {
+      const p = inp.dataset.p;
+      if (p === "code_names") m.code_names = inp.value.split(/[,\s]+/).filter(Boolean);
+      else if (p === "states") m.states = Object.fromEntries(inp.value.split(",").map((t) => t.trim().split(/\s+/)).filter((a) => a.length === 2 && isFinite(+a[1])).map(([k, v]) => [k, +v]));
+      else if (p === "closed_when") m.closed_when = inp.value === "true";
+      else if (["capacity", "transfer_s", "score_deg", "deg_per_s"].includes(p)) m[p] = parseFloat(inp.value);
+      else m[p] = inp.value;
+      renderRail(); drawZones();
+    }));
+    el.querySelectorAll("[data-z]").forEach((inp) => (inp.onchange = () => {
+      const k = inp.dataset.z;
+      m[k] = m[k] || [[0, 0], [0, 0]];
+      m[k][+inp.dataset.a][+inp.dataset.b] = parseFloat(inp.value);
+      drawZones();
+    }));
+    $("mechs").appendChild(el);
+  });
+
+  // bindings
+  const ids = mechs.map((m) => m.id);
+  const binds = s.bindings || (s.bindings = []);
+  $("binds").innerHTML = `<tr><td class="sub">action text (regex)</td><td class="sub">mechanism</td><td class="sub">does</td><td class="sub">value</td><td class="sub">scale</td><td></td></tr>` +
+    binds.map((b, i) => `<tr data-i="${i}"><td><input data-b="match" value="${esc(b.match)}"></td>
+      <td><select data-b="mech">${ids.map((id) => `<option ${id === b.mech ? "selected" : ""}>${esc(id)}</option>`).join("")}</select></td>
+      <td><select data-b="do">${OPS.map((o) => `<option ${o === b.do ? "selected" : ""}>${o}</option>`).join("")}</select></td>
+      <td><input data-b="value" value="${esc(b.value || "")}" style="width:60px"></td><td><input data-b="scale" value="${num(b.scale)}" style="width:52px"></td>
+      <td><button class="rm" style="background:none;border:0;color:var(--muted);cursor:pointer">×</button></td></tr>`).join("");
+  $("binds").querySelectorAll("tr[data-i]").forEach((tr) => {
+    const b = binds[+tr.dataset.i];
+    tr.querySelectorAll("[data-b]").forEach((inp) => (inp.onchange = () => {
+      const k = inp.dataset.b; b[k] = k === "scale" ? parseFloat(inp.value) || undefined : inp.value; updateUnbound();
+    }));
+    tr.querySelector(".rm").onclick = () => { binds.splice(+tr.dataset.i, 1); renderRail(); };
+  });
+  updateUnbound();
+
+  // notes
+  const qs = s.questions || [], ev = s.evidence || [];
+  $("notes").hidden = !qs.length && !ev.length;
+  $("questions").innerHTML = qs.map((q) => `<li>${esc(q)}</li>`).join("");
+  $("evidence").innerHTML = ev.map((e) => `<li><b>${esc(e.about || "")}</b> · ${esc(e.source || "")} · ${esc(e.detail || "")}</li>`).join("");
+}
+
+// which of the routines' action lines nothing will act on (mirrors spec.unbound)
+function updateUnbound() {
+  const s = S.spec, acts = (S.data.code && S.data.code.actions) || [];
+  const pats = (s.bindings || []).map((b) => { try { return new RegExp(b.match); } catch { return null; } }).filter(Boolean);
+  const names = (s.mechanisms || []).flatMap((m) => m.code_names || []);
+  const left = acts.filter((a) => !pats.some((p) => p.test(a)) &&
+    !names.some((n) => new RegExp(`^${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(move|move_voltage|move_velocity|brake|toggle|extend|retract|set_value)\\(`).test(a)));
+  $("unbound").innerHTML = acts.length
+    ? (left.length ? `${left.length} of ${acts.length} kinds of call don't move anything: ${left.slice(0, 6).map((a) => `<code>${esc(a)}</code>`).join(" · ")}${left.length > 6 ? " …" : ""}` : `all ${acts.length} kinds of call are handled`)
+    : "";
+}
+$("addmech").onclick = () => { S.spec.mechanisms.push({ id: "mech" + (S.spec.mechanisms.length + 1), kind: "other", code_names: [] }); renderRail(); };
+$("addbind").onclick = () => { S.spec.bindings.push({ match: "^(.+)$", mech: (S.spec.mechanisms[0] || {}).id, do: "toggle" }); renderRail(); };
+
+// ------------------------------------------------------------------ actions
+$("analyze").onclick = async () => {
+  try {
+    busy("Claude is looking at the robot (this takes a minute)");
+    const r = await api("/api/analyze", { session: S.session });
+    busy(null);
+    S.spec = r.spec;
+    renderRail(); drawZones();
+    if (r.errors.length) fail(new Error("the answer has problems: " + r.errors.join("; ")));
+  } catch (e) { fail(e); }
+};
+$("save").onclick = () => { $("rname").focus(); $("rname").select(); $("save2").click(); };
+$("save2").onclick = async () => {
+  try {
+    const name = $("rname").value.trim() || S.spec.name || "robot";
+    busy("saving");
+    const r = await api("/api/save", { session: S.session, spec: S.spec, name });
+    busy(null);
+    S.saved = r.dir + "/robot.json";
+    $("runnote").textContent = "saved to " + r.dir + " (" + r.files.join(", ") + ")";
+    $("run").disabled = false;
+  } catch (e) { fail(e); }
+};
+$("run").onclick = async () => {
+  try {
+    busy("running " + $("routine").value + " 300 times");
+    const r = await api("/api/check", { robot: S.saved, routine: $("routine").value });
+    busy(null);
+    $("runsum").hidden = false; $("runsum").textContent = r.summary;
+    window.open(r.report, "_blank");
+  } catch (e) { fail(e); }
+};
+// ?open=path/in/repo.step opens a CAD file that's already checked in
+const openPath = new URLSearchParams(location.search).get("open");
+if (openPath) {
+  busy("reading " + openPath);
+  api("/api/open", { path: openPath }).then(show, fail);
+}
+fetch("/api/routines").then((r) => r.json()).then((j) => {
+  $("routine").innerHTML = j.routines.map((r) => `<option>${esc(r)}</option>`).join("");
+});
+</script>
+</body>
+</html>

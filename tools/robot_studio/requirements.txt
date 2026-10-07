@@ -1,0 +1,5 @@
+# robot studio: python3 -m pip install -r tools/robot_studio/requirements.txt
+numpy>=1.26
+trimesh>=4.0
+pillow>=10.1
+cascadio>=0.1      # STEP/IGES via OpenCASCADE; mesh formats work without it
