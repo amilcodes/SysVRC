@@ -82,15 +82,30 @@ what makes it late (p95 finish time, one factor at a time; nominal 13.65 s):
 
 Each row varies one thing and holds the rest perfect. For this routine, where the robot ends up depends on slip and on how it was placed, so a better line-up tool helps accuracy. Whether it *finishes* depends almost entirely on the battery: with every battery full it's on time in 100% of runs, and at 85% charge in 36%. So charge between matches, or buy back time elsewhere in the route. Tuning the last drive wouldn't help.
 
-"Least repeatable mechanism calls" is sorted by the p95 distance between where the call fired in a disturbed run and where it fired in the clean run. The HTML report draws every run's position at that moment on the field plot. Click a row in the table to switch which call is shown.
+"Least repeatable mechanism calls" is sorted by the p95 distance between where the call fired in a disturbed run and where it fired in the clean run. In the report, click one to see where it fired in every run.
+
+## The report
+
+`--html` writes one file that needs no network, so it opens on a laptop at an event. It's the field with your routine on it:
+
+* the clean run's path, the robot at the playhead, and every disturbed run as a faint outline, so you can watch where they come apart
+* your code down the side, highlighted as it runs. Waits say how they exited (`settled`, `passed`, `stalled`), mechanism calls show their spread, and the line still running at the buzzer is marked red
+* the timeline: auton period, buzzer, and when each run finished
+* click a mechanism call (or `,` `.`) to see where it fired in every run
+
+The field picker has High Stakes, High Stakes skills, Override and plain tiles. Red/blue mirrors the routine across the field.
+
+If a routine zeroes odom (`odom_xyt_set(0, 0, h)`), the report doesn't know where it starts. It guesses a spot on the routine's side that keeps the path inside the walls. Drag the robot to where you really put it, `[` `]` to rotate. That only moves the drawing; if the routine pushes into a wall it also gives you the `--field-start` to rerun with.
+
+Keys: space plays, ←/→ step (shift for 1 s), Home/End. Put `#t=9.3` on the end of the URL to open it at that moment, which is handy for sending to a teammate.
 
 ## Limits
 
 Worth knowing before you trust a number:
 
 * **Drivetrain only.** Intakes, clamps and lifts are logged with timestamps, not simulated. The sim can tell you the clamp fired 4 in from where it usually does. It can't tell you whether the goal got clamped.
-* **No field elements.** The robot drives through goals and rings as if they weren't there.
-* **Walls only with a real start position.** Most routines use `odom_xyt_set(0, 0, heading)`, which says nothing about where on the field the robot is. Routines that shove into a wall with `drive_set` get a warning, and everything after the shove means nothing until you give a field start: `--field-start X,Y,HEADING`, or `# @field_start X Y HEADING` at the top of the .auton file. Field coordinates have the origin at the centre, +y toward the far wall, in inches. If your `odom_xyt_set` already uses field coordinates, copy the same numbers.
+* **No field elements.** The report draws them so you can see where you are, but the robot drives through goals and rings as if they weren't there.
+* **Walls need a real start position.** `odom_xyt_set(0, 0, heading)` says nothing about where on the field the robot is. If a routine starts at a nonzero x/y inside the field, that's taken as field coordinates (a mirrored or rotated frame is fine, the walls land in the same place). Otherwise, routines that shove into a wall with `drive_set` get a warning, and everything after the shove means nothing until you give a field start: `--field-start X,Y,HEADING`, or `# @field_start X Y HEADING` at the top of the .auton file. Field coordinates have the origin at the centre, +y toward the far wall, in inches.
 * **Kinematic drivetrain model.** Speed follows the command with a first-order lag; there's no motor torque curve, current limit, or VEXos 2.5 A to 2 A current drop. Short motions are the most trustworthy.
 * **The plant isn't fit to your robot yet.** Top speed comes from the geometry in `constants.hpp` (3.25 in wheels at 450 rpm), and the response time is the default above. If the sim's timings don't line up with your robot's, those two numbers are the first thing to check.
 * **What the importer skipped isn't there.** If a routine has `NOT IMPORTED` lines (sensor-dependent `if`s, live-pose math), the sim runs without them.

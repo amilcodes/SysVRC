@@ -97,7 +97,7 @@ Listed so nobody has to discover them by being surprised.
 | **Mechanism subsystems** | Intake, ladybrown, clamp and colour sort are recorded as timestamped action events (the original call text), not simulated. Their *timing* is preserved; their *effects* are not. |
 | **After the routine returns** | EZ holds the last motion until the auton period ends. The sim holds it until it settles, or 5 s, so headless runs terminate. |
 | **Turn to a point, reversed** | EZ faces a point in reverse through `find_point_to_face`; this adds 180° to the bearing. Same heading. |
-| **Walls** | Only modelled when a routine has a real field start (`# @field_start`). The chassis stops at the wall and the encoders keep counting, which is what makes odometry wrong after a wall push. No rotation from wall contact. |
+| **Walls** | Only modelled when a routine has a real field start (`# @field_start`, `--field-start`, or a nonzero `odom_xyt_set`). The chassis stops at the wall and the encoders keep counting, which is what makes odometry wrong after a wall push. No rotation from wall contact. |
 | **Field elements** | None. The robot drives through goals and rings. |
 
 ## Odometry drift against Gazebo

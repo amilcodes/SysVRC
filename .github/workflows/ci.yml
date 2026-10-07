@@ -21,7 +21,7 @@ jobs:
         run: for f in autons/*.auton; do build/core/auton_check "$f" --runs 100 --brief; done
 
   importer:
-    name: ez_import (autons/ matches v5/src)
+    name: tools (autons/ and generated web files up to date)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

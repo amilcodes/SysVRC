@@ -66,6 +66,7 @@ struct Options {
     bool hasFieldStart = false;
     Pose fieldStart;
     bool brief = false;
+    std::string field;            // report's default field layer; empty = guess from the name
 };
 
 [[noreturn]] void usage(int code) {
@@ -80,6 +81,8 @@ struct Options {
         "  --set KEY=VALUE    override a gain, e.g. --set drive.kp=14 --set turn.kd=25\n"
         "  --no-sensitivity   skip the one-factor-at-a-time breakdown\n"
         "  --brief            one summary line (for checking a folder of autons)\n"
+        "  --field NAME       field drawn in the report: high-stakes, high-stakes-skills,\n"
+        "                     override, blank (default: from the routine's name)\n"
         "  --field-start X,Y,H  where the robot really starts, in field inches/degrees\n"
         "                     (origin at field centre, +y toward the far wall). Turns on\n"
         "                     the perimeter walls; needed for routines that push into a\n"
@@ -122,6 +125,7 @@ Options parseArgs(int argc, char** argv) {
         else if (a == "--json") o.jsonPath = val();
         else if (a == "--no-sensitivity") o.sensitivity = false;
         else if (a == "--brief") o.brief = true;
+        else if (a == "--field") o.field = val();
         else if (a == "--field-start") {
             const char* v = val();
             if (std::sscanf(v, "%lf,%lf,%lf", &o.fieldStart.x, &o.fieldStart.y, &o.fieldStart.theta) != 3) {
@@ -200,7 +204,8 @@ struct Run {
     std::vector<ActionHit> actions;          // indexed like actionPcs
     std::vector<ExitReason> exits;           // per blocking instruction
     int pcAtBudget = -1;                     // what was running when time ran out
-    std::vector<Pose> path;                  // subsampled true pose
+    std::vector<Pose> traj;                  // true pose every `sampleTicks` ticks
+    std::vector<double> instrStart;          // when each instruction became current
 };
 
 struct Plan {
@@ -233,7 +238,8 @@ Plan makePlan(const MissionDef& def) {
     return p;
 }
 
-Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double budget, bool keepPath) {
+/// sampleTicks: record the true pose every N control ticks (0 = don't).
+Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double budget, int sampleTicks) {
     RobotParams rp;
     PlantParams pp = draw.plant;
     pp.walls = plan.def.hasFieldStart;
@@ -248,6 +254,8 @@ Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double
 
     Run r;
     r.draw = draw;
+    r.instrStart.assign(plan.def.mission.size() + 1, -1.0);
+    if (!plan.def.mission.empty()) r.instrStart[0] = 0.0;
     r.actions.resize(plan.actionPcs.size());
     r.exits.assign(plan.waitPcs.size(), ExitReason::Running);
     std::map<int, size_t> actionIndex, waitIndex;
@@ -259,7 +267,9 @@ Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double
     double t = 0;
     int pc = ctrl.status().pc;
     int seenActions = 0;
+    long tick = 0;
     bool motionDone = plan.lastMotionWaitPc < 0;
+    if (sampleTicks > 0) r.traj.push_back(plant.truth());
     while (!ctrl.status().done && t < limit) {
         const WheelCmd c = ctrl.tick(plant.sensors(), dt);
         plant.step(c, dt);
@@ -282,6 +292,9 @@ Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double
                 auto it = waitIndex.find(k);
                 if (it != waitIndex.end()) r.exits[it->second] = st.lastExit;
             }
+            // Everything passed over this tick starts now (several can).
+            for (int k = std::max(pc + 1, 0); k <= st.pc && k < static_cast<int>(r.instrStart.size()); ++k)
+                if (r.instrStart[k] < 0) r.instrStart[k] = t;
             pc = st.pc;
         }
         if (!motionDone && (st.pc > plan.lastMotionWaitPc || st.done)) {
@@ -290,7 +303,7 @@ Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double
             r.end = plant.truth();
         }
         if (r.pcAtBudget < 0 && t >= budget) r.pcAtBudget = st.pc;
-        if (keepPath && (r.path.empty() || static_cast<int>(t * 120) % 6 == 0)) r.path.push_back(plant.truth());
+        if (sampleTicks > 0 && ++tick % sampleTicks == 0) r.traj.push_back(plant.truth());
     }
     r.total = t;
     r.finished = ctrl.status().done;
@@ -327,6 +340,12 @@ Draw draw(Sampler& s, const Disturbances& d, int onlyFactor = -1) {
     w.plant.motorTauSec = on(kTau) ? s.uniform(d.tau) : 0.12;
     return w;
 }
+
+// The report animates the clean run at 20 Hz and draws up to kGhostRuns of
+// the varied runs as "ghosts" at 10 Hz (control ticks are 120 Hz).
+constexpr int kNominalSampleTicks = 6;
+constexpr int kGhostSampleTicks = 12;
+constexpr int kGhostRuns = 60;
 
 Draw nominalDraw() {
     Draw w;
@@ -384,6 +403,15 @@ int main(int argc, char** argv) {
     }
     if (o.budget < 0) o.budget = def.name.find("skills") != std::string::npos ? 60.0 : 15.0;
     if (o.hasFieldStart) { def.hasFieldStart = true; def.fieldStart = o.fieldStart; }
+    // odom_xyt_set(0, 0, h) says nothing about where the robot is, but a
+    // nonzero start inside the field is the team writing field coordinates
+    // (the sim spawns there too). Any of the field's symmetric frames puts the
+    // walls in the same place, so that's enough to simulate wall pushes.
+    if (!def.hasFieldStart && (def.start.x != 0.0 || def.start.y != 0.0) &&
+        std::fabs(def.start.x) < 72.0 && std::fabs(def.start.y) < 72.0) {
+        def.hasFieldStart = true;
+        def.fieldStart = def.start;
+    }
 
     // Timed pushes (drive_set) only mean something if there's a wall to push into.
     std::vector<std::string> warnings;
@@ -406,13 +434,14 @@ int main(int argc, char** argv) {
     const Plan plan = makePlan(def);
 
     // Nominal run: nothing disturbed. Everything else is measured against it.
-    const Run nominal = simulate(plan, gains, nominalDraw(), o.budget, true);
+    const Run nominal = simulate(plan, gains, nominalDraw(), o.budget, kNominalSampleTicks);
 
     // Disturbed runs.
     Sampler sampler(o.seed);
     std::vector<Run> runs;
     runs.reserve(static_cast<size_t>(o.runs));
-    for (int i = 0; i < o.runs; ++i) runs.push_back(simulate(plan, gains, draw(sampler, o.d), o.budget, i < 40));
+    for (int i = 0; i < o.runs; ++i)
+        runs.push_back(simulate(plan, gains, draw(sampler, o.d), o.budget, i < kGhostRuns ? kGhostSampleTicks : 0));
 
     // Timing.
     std::vector<double> motionEnd, endErr, endHeadErr;
@@ -467,7 +496,7 @@ int main(int argc, char** argv) {
             for (int i = 0; i < per; ++i) {
                 Draw w = draw(s, o.d, f);
                 w.plant.imuNoiseStdDeg = 0.0;  // isolate the factor
-                const Run r = simulate(plan, gains, w, o.budget, false);
+                const Run r = simulate(plan, gains, w, o.budget, 0);
                 e.push_back(dist(r.end, nominal.end));
                 tt.push_back(r.motionEnd);
                 if (r.motionEnd <= o.budget) ++ok;
@@ -576,67 +605,109 @@ int main(int argc, char** argv) {
                 o.d.slip.lo, o.d.slip.hi, o.d.driftSigma, o.d.tau.lo, o.d.tau.hi);
 
     // ------------------------------------------------------------ json
+    // Shaped for the report's field view: everything is a pose sample, an
+    // instruction row, or a cloud of points, in the routine's own frame (or
+    // field coordinates when a field start was given).
+    auto pose3 = [&](std::ostringstream& j, const Pose& p, int prec) {
+        j << "[" << num(p.x, prec) << "," << num(p.y, prec) << "," << num(wrapDeg(p.theta), 1) << "]";
+    };
+    auto kindOf = [](const Instr& in) {
+        switch (in.op) {
+            case Instr::Op::Action: return "action";
+            case Instr::Op::Delay: return "delay";
+            case Instr::Op::Wait: case Instr::Op::WaitUntil: case Instr::Op::WaitQuick:
+            case Instr::Op::WaitQuickChain: return "wait";
+            case Instr::Op::DriveSet: case Instr::Op::TurnSet: case Instr::Op::TurnToPoint:
+            case Instr::Op::TurnRelative: case Instr::Op::SwingSet: case Instr::Op::OdomSet:
+            case Instr::Op::DriveRaw: return "motion";
+            default: return "set";
+        }
+    };
+    // Which instruction to flag as "still running at the buzzer".
+    int lateIdx = -1;
+    if (overPc >= static_cast<int>(def.mission.size())) {
+        for (int i = static_cast<int>(def.mission.size()) - 1; i >= 0 && lateIdx < 0; --i)
+            if (std::string(kindOf(def.mission[static_cast<size_t>(i)])) == "motion") lateIdx = i;
+    } else {
+        lateIdx = overPc;
+    }
+    const std::string alliance = def.name.find(".red") != std::string::npos ? "red"
+                               : def.name.find(".blue") != std::string::npos ? "blue" : "";
+    const std::string field = !o.field.empty() ? o.field
+                            : def.name.find("skills") != std::string::npos ? "high-stakes-skills" : "high-stakes";
+    RobotParams rp;
+
     std::ostringstream j;
-    j << "{\"name\":\"" << jsonEscape(def.name) << "\",\"source\":\"" << jsonEscape(o.auton) << "\","
-      << "\"runs\":" << o.runs << ",\"budget\":" << num(o.budget) << ",\"seed\":" << o.seed << ","
-      << "\"start\":[" << num(def.start.x) << "," << num(def.start.y) << "," << num(def.start.theta) << "],"
-      << "\"walls\":" << (def.hasFieldStart ? "true" : "false") << ","
-      << "\"over_at\":\"" << jsonEscape(overWhere) << "\",\"over_runs\":" << overN << ","
-      << "\"warnings\":[";
+    j << "{\"v\":2,\"name\":\"" << jsonEscape(def.name) << "\",\"source\":\"" << jsonEscape(o.auton) << "\""
+      << ",\"runs\":" << o.runs << ",\"seed\":" << o.seed << ",\"budget\":" << num(o.budget, 1)
+      << ",\"field\":\"" << field << "\",\"alliance\":" << (alliance.empty() ? "null" : "\"" + alliance + "\"")
+      << ",\"robot\":[" << num(rp.robotWidthIn, 1) << "," << num(rp.robotLengthIn, 1) << "]"
+      << ",\"start\":";
+    pose3(j, def.start, 2);
+    j << ",\"field_start\":";
+    if (def.hasFieldStart) pose3(j, def.fieldStart, 2); else j << "null";
+    j << ",\"warnings\":[";
     for (size_t i = 0; i < warnings.size(); ++i) j << (i ? "," : "") << "\"" << jsonEscape(warnings[i]) << "\"";
-    j << "],"
-      << "\"disturbances\":{\"place_xy\":" << num(o.d.placeXySigma) << ",\"place_deg\":" << num(o.d.placeDegSigma)
-      << ",\"battery\":[" << num(o.d.battery.lo) << "," << num(o.d.battery.hi) << "],\"mismatch\":"
-      << num(o.d.mismatchSigma) << ",\"slip\":[" << num(o.d.slip.lo) << "," << num(o.d.slip.hi) << "],\"drift\":"
-      << num(o.d.driftSigma) << ",\"tau\":[" << num(o.d.tau.lo) << "," << num(o.d.tau.hi) << "]},"
-      << "\"nominal\":{\"motion_end\":" << num(nominal.motionEnd) << ",\"total\":" << num(nominal.total)
-      << ",\"end\":[" << num(nominal.end.x) << "," << num(nominal.end.y) << "," << num(nominal.end.theta) << "],"
-      << "\"path\":[";
-    for (size_t i = 0; i < nominal.path.size(); ++i)
-        j << (i ? "," : "") << "[" << num(nominal.path[i].x, 2) << "," << num(nominal.path[i].y, 2) << "]";
-    j << "]},\"time\":{\"p50\":" << num(percentile(motionEnd, 0.5)) << ",\"p95\":" << num(percentile(motionEnd, 0.95))
-      << ",\"max\":" << num(*std::max_element(motionEnd.begin(), motionEnd.end())) << ",\"on_time_pct\":" << num(pct, 2)
-      << ",\"all\":[";
-    for (size_t i = 0; i < motionEnd.size(); ++i) j << (i ? "," : "") << num(motionEnd[i], 3);
-    j << "]},\"end\":{\"p50\":" << num(percentile(endErr, 0.5)) << ",\"p95\":" << num(percentile(endErr, 0.95))
-      << ",\"heading_p95\":" << num(percentile(endHeadErr, 0.95)) << ",\"points\":[";
-    for (size_t i = 0; i < runs.size(); ++i)
-        j << (i ? "," : "") << "[" << num(runs[i].end.x, 2) << "," << num(runs[i].end.y, 2) << "]";
-    j << "]},\"interfered_runs\":" << interfered << ",\"paths\":[";
+    j << "],\"stats\":{\"on_time\":" << num(pct, 1) << ",\"p50\":" << num(percentile(motionEnd, 0.5), 2)
+      << ",\"p95\":" << num(percentile(motionEnd, 0.95), 2)
+      << ",\"worst\":" << num(*std::max_element(motionEnd.begin(), motionEnd.end()), 2)
+      << ",\"nominal\":" << num(nominal.motionEnd, 2) << ",\"total\":" << num(nominal.total, 2)
+      << ",\"end_p95\":" << num(percentile(endErr, 0.95), 2) << ",\"heading_p95\":" << num(percentile(endHeadErr, 0.95), 1)
+      << ",\"late_i\":" << lateIdx << ",\"late_runs\":" << overN << "}";
+
+    j << ",\"finish\":[";
+    for (size_t i = 0; i < motionEnd.size(); ++i) j << (i ? "," : "") << num(motionEnd[i], 2);
+    j << "],\"dt\":" << num(kNominalSampleTicks / 120.0, 4) << ",\"path\":[";
+    for (size_t i = 0; i < nominal.traj.size(); ++i) { if (i) j << ","; pose3(j, nominal.traj[i], 2); }
+    j << "],\"gdt\":" << num(kGhostSampleTicks / 120.0, 4) << ",\"ghosts\":[";
     for (size_t i = 0, n = 0; i < runs.size(); ++i) {
-        if (runs[i].path.empty()) continue;
+        if (runs[i].traj.empty()) continue;
         j << (n++ ? "," : "") << "[";
-        for (size_t k = 0; k < runs[i].path.size(); ++k)
-            j << (k ? "," : "") << "[" << num(runs[i].path[k].x, 1) << "," << num(runs[i].path[k].y, 1) << "]";
+        for (size_t k = 0; k < runs[i].traj.size(); ++k) { if (k) j << ","; pose3(j, runs[i].traj[k], 1); }
         j << "]";
+    }
+    j << "],\"instrs\":[";
+    std::map<int, size_t> waitIdx, actIdx;
+    for (size_t w = 0; w < plan.waitPcs.size(); ++w) waitIdx[plan.waitPcs[w]] = w;
+    for (size_t a = 0; a < plan.actionPcs.size(); ++a) actIdx[plan.actionPcs[a]] = a;
+    for (size_t i = 0; i < def.mission.size(); ++i) {
+        const Instr& in = def.mission[i];
+        j << (i ? "," : "") << "{\"line\":" << in.sourceLine << ",\"text\":\"" << jsonEscape(toAutonLine(in))
+          << "\",\"kind\":\"" << kindOf(in) << "\",\"t\":" << num(nominal.instrStart[i], 2);
+        auto w = waitIdx.find(static_cast<int>(i));
+        if (w != waitIdx.end()) {
+            int bad = 0;
+            for (const Run& r : runs)
+                if (r.exits[w->second] == ExitReason::Velocity || r.exits[w->second] == ExitReason::Timeout) ++bad;
+            j << ",\"exit\":\"" << toString(nominal.exits[w->second]) << "\",\"stall\":"
+              << num(100.0 * bad / runs.size(), 1);
+        }
+        auto a = actIdx.find(static_cast<int>(i));
+        if (a != actIdx.end()) j << ",\"action\":" << a->second;
+        j << "}";
     }
     j << "],\"actions\":[";
     for (size_t a = 0; a < actionStats.size(); ++a) {
-        const auto& s = actionStats[a];
-        const Instr& in = def.mission[static_cast<size_t>(s.pc)];
-        j << (a ? "," : "") << "{\"label\":\"" << jsonEscape(in.label) << "\",\"line\":" << in.sourceLine
-          << ",\"pc\":" << s.pc << ",\"t\":" << num(s.nomT) << ",\"nominal\":[" << num(s.nom.x, 2) << ","
-          << num(s.nom.y, 2) << "],\"p50\":" << num(s.p50) << ",\"p95\":" << num(s.p95) << ",\"max\":" << num(s.max)
-          << ",\"points\":[";
-        for (size_t i = 0, n = 0; i < runs.size() && n < 200; ++i) {
+        const auto& st = actionStats[a];
+        j << (a ? "," : "") << "{\"i\":" << st.pc << ",\"t\":" << num(st.nomT, 2) << ",\"at\":[" << num(st.nom.x, 2)
+          << "," << num(st.nom.y, 2) << "],\"p95\":" << num(st.p95, 2) << ",\"pts\":[";
+        for (size_t i = 0, n = 0; i < runs.size() && n < 300; ++i) {
             if (!runs[i].actions[a].fired) continue;
-            j << (n++ ? "," : "") << "[" << num(runs[i].actions[a].at.x, 2) << "," << num(runs[i].actions[a].at.y, 2)
-              << "]";
+            j << (n++ ? "," : "") << "[" << num(runs[i].actions[a].at.x, 1) << "," << num(runs[i].actions[a].at.y, 1) << "]";
         }
         j << "]}";
     }
-    j << "],\"sensitivity\":[";
+    j << "],\"why\":{\"spread\":[";
     for (size_t i = 0; i < byEnd.size(); ++i)
-        j << (i ? "," : "") << "{\"factor\":\"" << kFactorNames[byEnd[i].factor] << "\",\"p95\":"
-          << num(byEnd[i].endP95) << ",\"time_p95\":" << num(byEnd[i].timeP95) << ",\"late_s\":"
-          << num(byEnd[i].timeP95 - nominal.motionEnd) << ",\"on_time_pct\":" << num(byEnd[i].onTimePct, 1) << "}";
-    j << "],\"fragile\":[";
-    for (size_t i = 0; i < fragileWaits.size(); ++i) {
-        const Instr& in = def.mission[static_cast<size_t>(fragileWaits[i].first)];
-        j << (i ? "," : "") << "{\"pc\":" << fragileWaits[i].first << ",\"what\":\"" << in.name() << "\",\"line\":"
-          << in.sourceLine << ",\"pct\":" << num(100.0 * fragileWaits[i].second / runs.size(), 1) << "}";
-    }
-    j << "]}";
+        j << (i ? "," : "") << "[\"" << kFactorNames[byEnd[i].factor] << "\"," << num(byEnd[i].endP95, 2) << "]";
+    j << "],\"late\":[";
+    for (size_t i = 0; i < byTime.size(); ++i)
+        j << (i ? "," : "") << "[\"" << kFactorNames[byTime[i].factor] << "\","
+          << num(byTime[i].timeP95 - nominal.motionEnd, 2) << "," << num(byTime[i].onTimePct, 1) << "]";
+    j << "]},\"disturb\":{\"place_xy\":" << num(o.d.placeXySigma) << ",\"place_deg\":" << num(o.d.placeDegSigma)
+      << ",\"battery\":[" << num(o.d.battery.lo) << "," << num(o.d.battery.hi) << "],\"mismatch\":"
+      << num(o.d.mismatchSigma) << ",\"slip\":[" << num(o.d.slip.lo) << "," << num(o.d.slip.hi) << "],\"drift\":"
+      << num(o.d.driftSigma) << ",\"tau\":[" << num(o.d.tau.lo) << "," << num(o.d.tau.hi) << "]}}";
     const std::string json = j.str();
 
     if (!o.jsonPath.empty()) {
