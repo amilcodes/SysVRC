@@ -322,6 +322,7 @@ private:
         m.step_name = ss.status.instr;
         m.step_error = ss.status.error;
         m.step_elapsed_ms = ss.status.instrElapsedMs;
+        m.mission_ms = ss.status.missionMs;
         m.mode = visbot::toString(ss.status.mode);
         m.interfered = ss.status.interfered;
         m.last_action = ss.status.lastAction[0] ? ss.status.lastAction : "none";

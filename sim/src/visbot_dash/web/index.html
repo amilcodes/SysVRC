@@ -3,332 +3,471 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SysVRC · sim testbed</title>
+<title>SysVRC sim</title>
 <style>
   :root {
-    --bg: #0b0e14; --panel: #121722; --line: #1f2736; --text: #d8dee9; --muted: #7c8799;
-    --accent: #4cc9f0; --truth: #f4a261; --ok: #57d38c; --warn: #f2c14e; --bad: #ef476f;
-    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --bg: #0f1114; --panel: #14171b; --raise: #1b1f25; --line: #252a31;
+    --ink: #e7eaee; --ink2: #a6aeb8; --muted: #6c7480;
+    --amber: #f5b800; --cyan: #1fc8f0; --red: #d8423b; --blue: #2f7fd8; --late: #e5534b; --ok: #4fbf7a;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-  header { display: flex; align-items: center; gap: 14px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
-  header h1 { font-size: 15px; margin: 0; letter-spacing: .04em; }
-  header h1 span { color: var(--muted); font-weight: 400; }
-  .chip { font-family: var(--mono); font-size: 11px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
-  .chip.on { color: var(--ok); border-color: #2a4d3a; }
-  .chip.off { color: var(--bad); border-color: #4d2a35; }
-  .chip.fifo { color: var(--accent); border-color: #234c5a; }
-  main { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(360px, 480px);
-         gap: 14px; padding: 14px 18px; align-items: start; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
-  .panel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
-  #field { width: 100%; aspect-ratio: 1; display: block; border-radius: 6px; }
-  .col { display: flex; flex-direction: column; gap: 14px; }
-  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-  .tile { background: #0e121b; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
-  .tile .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
-  .tile .v { font-family: var(--mono); font-size: 18px; margin-top: 2px; }
-  .tile .u { font-size: 10px; color: var(--muted); margin-left: 3px; }
-  .tile.good .v { color: var(--ok); } .tile.warn .v { color: var(--warn); } .tile.bad .v { color: var(--bad); }
-  canvas.chart { width: 100%; height: 130px; display: block; }
-  .legend { display: flex; gap: 12px; font-size: 11px; color: var(--muted); margin-top: 6px; }
-  .legend i { display: inline-block; width: 10px; height: 3px; margin-right: 5px; vertical-align: middle; }
-  ol.steps { list-style: none; margin: 0; padding: 0; font-family: var(--mono); font-size: 12px; max-height: 260px; overflow-y: auto; }
-  ol.steps li { display: flex; justify-content: space-between; padding: 3px 6px; border-radius: 4px; color: var(--muted); }
-  ol.steps li.done { color: #5d7a6b; }
-  ol.steps li.active { background: #16202e; color: var(--text); }
-  ol.steps li .x { color: var(--muted); }
-  .bars { display: grid; grid-template-columns: 60px 1fr 60px; gap: 6px; align-items: center; font-family: var(--mono); font-size: 12px; }
-  .bar { height: 10px; background: #0e121b; border: 1px solid var(--line); border-radius: 3px; position: relative; overflow: hidden; }
-  .bar i { position: absolute; top: 0; bottom: 0; background: var(--accent); }
-  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; font-family: var(--mono); font-size: 12px; }
-  .kv span:nth-child(odd) { color: var(--muted); }
-  footer { color: var(--muted); font-size: 11px; padding: 0 18px 14px; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+  button, select { font: inherit; color: inherit; }
+  #app { display: grid; grid-template-rows: 44px 1fr 64px; grid-template-columns: minmax(0, 1fr); height: 100vh; }
+
+  header { display: flex; align-items: center; gap: 14px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; white-space: nowrap; }
+  .brand { font: 600 12px var(--mono); color: var(--muted); }
+  .name { font: 600 13px var(--mono); overflow: hidden; text-overflow: ellipsis; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 6px; }
+  .conn { font: 12px var(--mono); color: var(--ink2); }
+  .conn.live .dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .conn.replay .dot { background: var(--cyan); }
+  .conn.off .dot { background: var(--late); }
+  .tag { font: 12px var(--mono); color: var(--ink2); }
+  .tag.warn { color: var(--amber); }
+  .grow { flex: 1; }
+  select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font: 12px var(--mono); color: var(--ink2); }
+  .btn { background: none; border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; cursor: pointer; font: 12px var(--mono); color: var(--ink2); }
+  .btn:hover { color: var(--ink); }
+
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; min-height: 0; }
+  #stage { position: relative; min-width: 0; min-height: 0; display: grid; place-items: center; overflow: hidden; }
+  #field { display: block; }
+  #hud { position: absolute; left: 12px; bottom: 10px; font: 12px var(--mono); color: var(--ink2); pointer-events: none; display: flex; gap: 14px; text-shadow: 0 1px 2px #000; }
+  #hud b { color: var(--ink); font-weight: 500; }
+  #legend { position: absolute; right: 12px; bottom: 10px; font: 11px var(--mono); color: var(--muted); display: flex; gap: 12px; pointer-events: none; }
+  #legend i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; margin-right: 5px; vertical-align: middle; }
+
+  aside { border-left: 1px solid var(--line); background: var(--panel); display: grid; grid-template-rows: 1fr auto; min-height: 0; }
+  #code { list-style: none; margin: 0; padding: 4px 0; overflow-y: auto; font: 12px/1.25 var(--mono); }
+  #code li { display: grid; grid-template-columns: 34px 12px minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 3px 10px 3px 0; border-left: 2px solid transparent; }
+  #code li.on { background: #222019; border-left-color: var(--amber); }
+  #code .ln { color: var(--muted); text-align: right; }
+  #code .tx { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #code .k-wait .tx, #code .k-delay .tx, #code .k-set .tx { color: var(--ink2); }
+  #code .done .tx { opacity: 0.55; }
+  #code .g { width: 7px; height: 7px; border-radius: 1px; justify-self: center; }
+  #code .k-motion .g { background: var(--amber); }
+  #code .k-action .g { background: var(--cyan); transform: rotate(45deg); width: 6px; height: 6px; }
+  #code .bd { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  #code .bd.warn { color: var(--amber); }
+  #code .bd.live { color: var(--ink); }
+  #code .empty { color: var(--muted); padding: 10px 14px; display: block; }
+
+  #loop { border-top: 1px solid var(--line); padding: 8px 12px 10px; font: 11px/1.6 var(--mono); color: var(--ink2); }
+  #loop .row { display: grid; grid-template-columns: 52px 1fr; gap: 6px; }
+  #loop .k { color: var(--muted); }
+  #loop b { color: var(--ink); font-weight: 500; }
+  #loop .bad { color: var(--late); }
+  #hist { width: 100%; height: 54px; display: block; margin-top: 6px; }
+  .drive { display: grid; grid-template-columns: 52px 1fr 1fr; gap: 6px; align-items: center; }
+  .bar { height: 6px; background: var(--raise); border-radius: 3px; position: relative; overflow: hidden; }
+  .bar i { position: absolute; top: 0; bottom: 0; background: var(--amber); }
+  .bar::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line); }
+
+  footer { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 0 14px; border-top: 1px solid var(--line); background: var(--panel); }
+  #play { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); background: var(--raise); cursor: pointer; display: grid; place-items: center; }
+  #clock { font: 600 15px var(--mono); min-width: 64px; font-variant-numeric: tabular-nums; }
+  #tl { width: 100%; height: 48px; display: block; cursor: pointer; touch-action: none; }
+
+  @media (max-width: 860px) {
+    #app { grid-template-rows: auto 1fr 64px; }
+    header { flex-wrap: wrap; padding: 6px 12px; row-gap: 6px; white-space: normal; }
+    .stats { flex-wrap: wrap; row-gap: 2px; }
+    .stats > span { white-space: nowrap; }
+    main { grid-template-columns: 1fr; grid-template-rows: minmax(300px, 1fr) 260px; }
+    aside { border-left: 0; border-top: 1px solid var(--line); }
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>SysVRC <span>· ROS 2 + Gazebo sim testbed</span></h1>
-  <span id="conn" class="chip off">disconnected</span>
-  <span id="sched" class="chip">—</span>
-  <span id="rate" class="chip">—</span>
-  <span id="mode" class="chip">—</span>
-  <span id="intf" class="chip off" hidden>interfered</span>
-  <span id="t" class="chip" style="margin-left:auto">t = 0.0 s</span>
-  <button id="snap" class="chip" style="cursor:pointer;background:none" title="render the page to PNG and save it on the sim host">snapshot</button>
-</header>
-<main>
-  <section class="panel">
-    <h2>Field · odometry estimate vs ground truth</h2>
-    <canvas id="field"></canvas>
-    <div class="legend"><span><i style="background:var(--accent)"></i>controller odometry</span><span><i style="background:var(--truth)"></i>backend ground truth</span><span id="poseErr"></span></div>
-  </section>
-  <div class="col">
-    <section class="panel">
-      <h2>120 Hz control loop · wake latency</h2>
-      <div class="tiles">
-        <div class="tile" id="t_p50"><div class="k">p50</div><div class="v">—<span class="u">µs</span></div></div>
-        <div class="tile" id="t_p99"><div class="k">p99</div><div class="v">—<span class="u">µs</span></div></div>
-        <div class="tile" id="t_max"><div class="k">max</div><div class="v">—<span class="u">µs</span></div></div>
-        <div class="tile" id="t_jit"><div class="k">jitter rms</div><div class="v">—<span class="u">µs</span></div></div>
-        <div class="tile" id="t_exec"><div class="k">exec p99</div><div class="v">—<span class="u">µs</span></div></div>
-        <div class="tile" id="t_over"><div class="k">overruns</div><div class="v">—</div></div>
-        <div class="tile" id="t_miss"><div class="k">missed</div><div class="v">—</div></div>
-        <div class="tile" id="t_stale"><div class="k">stale ticks</div><div class="v">—</div></div>
+<div id="app">
+  <header>
+    <span class="brand">SysVRC</span>
+    <span class="name" id="name">—</span>
+    <span class="conn off" id="conn"><span class="dot"></span><span id="connText">offline</span></span>
+    <span class="tag" id="mode"></span>
+    <span class="tag warn" id="intf" hidden>interfered</span>
+    <span class="grow"></span>
+    <select id="layout" title="field"></select>
+    <span class="tag" id="sched"></span>
+    <button class="btn" id="snap" title="save a PNG of this page on the sim host">png</button>
+  </header>
+  <main>
+    <section id="stage">
+      <canvas id="field"></canvas>
+      <div id="hud"></div>
+      <div id="legend"><span><i style="border-color:var(--amber)"></i>robot</span><span><i style="border-color:#fff;border-top-style:dashed"></i>odometry</span></div>
+    </section>
+    <aside>
+      <ol id="code"><li class="empty">waiting for a routine</li></ol>
+      <div id="loop">
+        <div class="row"><span class="k">wake</span><span id="wake">—</span></div>
+        <div class="row"><span class="k">exec</span><span id="exec">—</span></div>
+        <div class="row"><span class="k">misses</span><span id="miss">—</span></div>
+        <div class="drive"><span class="k">L / R</span><div class="bar"><i id="bl"></i></div><div class="bar"><i id="br"></i></div></div>
+        <canvas id="hist" title="wake latency, log count"></canvas>
       </div>
-    </section>
-    <section class="panel">
-      <h2>Wake-latency histogram <span id="histNote" style="text-transform:none;letter-spacing:0"></span></h2>
-      <canvas id="hist" class="chart"></canvas>
-    </section>
-    <section class="panel">
-      <h2>p99 / max over time</h2>
-      <canvas id="series" class="chart"></canvas>
-      <div class="legend"><span><i style="background:var(--accent)"></i>p99</span><span><i style="background:var(--bad)"></i>max</span><span><i style="background:#3a4356"></i>period budget</span></div>
-    </section>
-    <section class="panel">
-      <h2>Mission <span id="missionName" style="text-transform:none;letter-spacing:0"></span></h2>
-      <ol class="steps" id="steps"></ol>
-    </section>
-    <section class="panel">
-      <h2>Mechanism calls <span id="actNote" style="text-transform:none;letter-spacing:0"></span></h2>
-      <ol class="steps" id="actions"><li style="color:var(--muted)">none yet</li></ol>
-    </section>
-    <section class="panel">
-      <h2>Sensors &amp; command</h2>
-      <div class="bars">
-        <span>left</span><div class="bar"><i id="bl"></i></div><span id="vl">0</span>
-        <span>right</span><div class="bar"><i id="br"></i></div><span id="vr">0</span>
-      </div>
-      <div class="kv" style="margin-top:8px">
-        <span>imu heading</span><span id="imu">—</span>
-        <span>enc L / R</span><span id="enc">—</span>
-        <span>sensor age</span><span id="age">—</span>
-        <span>twist v / ω</span><span id="twist">—</span>
-      </div>
-    </section>
-  </div>
-</main>
-<footer>Wake latency = actual − scheduled wake time of the RT thread (CLOCK_MONOTONIC). Period budget 8333 µs. Stats are reset when the mission arms, so start-up transients are excluded.</footer>
+    </aside>
+  </main>
+  <footer>
+    <button id="play" title="play / pause (space)" hidden><svg width="12" height="12" viewBox="0 0 12 12"><path id="playIcon" d="M2 1l9 5-9 5z" fill="currentColor"/></svg></button>
+    <span id="clock">0.00</span>
+    <canvas id="tl"></canvas>
+    <button class="btn" id="live" title="follow the live run" hidden>live</button>
+  </footer>
+</div>
+<script src="field.js"></script>
 <script>
-(() => {
-  const $ = id => document.getElementById(id);
-  const dpr = window.devicePixelRatio || 1;
-  const FIELD_IN = 144, TILE = 24, ROBOT = 15;
-  const trailEst = [], trailTruth = [];
-  const series = [];            // {t, p99, max}
-  const exits = [];             // exit reason per completed instruction
-  const actions = [];           // {t, name} mechanism calls, in order
-  let lastActionAt = -1;
-  let last = null, lastStepCount = 0;
+"use strict";
+const F = window.VexField;
+const $ = (id) => document.getElementById(id);
+const dpr = () => window.devicePixelRatio || 1;
+const store = { get(k, d) { try { const v = localStorage.getItem("sysvrc:dash:" + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+                set(k, v) { try { localStorage.setItem("sysvrc:dash:" + k, JSON.stringify(v)); } catch {} } };
 
-  function fit(c) {
-    const r = c.getBoundingClientRect();
-    if (c.width !== Math.round(r.width * dpr) || c.height !== Math.round(r.height * dpr)) {
-      c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
-    }
-    const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); return [g, r.width, r.height];
+// Every frame since the routine armed. Live and replay render the same way:
+// pick a frame index, rebuild everything up to it.
+let frames = [];
+let cursor = -1;          // index being shown
+let follow = true;        // live: keep showing the newest frame
+let playing = false, replay = false;
+// The field drawn under the robot. Until someone picks one: the skills field
+// for skills, tiles only when the routine starts at (0, 0) (the sim doesn't
+// know where it really starts, so game elements would be in the wrong place).
+let layoutKey = store.get("layout", null);
+function autoLayout(s) {
+  if (store.get("layout", null)) return;
+  const p = (idle && idle.truth) || s;          // where it spawned, if we saw it
+  const zero = Math.abs(p.x) < 3 && Math.abs(p.y) < 3;
+  layoutKey = zero ? "blank" : /skills/i.test(s.mission) ? "high-stakes-skills" : "high-stakes";
+  $("layout").value = layoutKey;
+}
+let lastStats = null, lastHist = null;
+
+for (const [k, L] of Object.entries(F.LAYOUTS)) {
+  const o = document.createElement("option"); o.value = k; o.textContent = L.name; $("layout").appendChild(o);
+}
+$("layout").value = layoutKey || "high-stakes";
+$("layout").onchange = (e) => { layoutKey = e.target.value; store.set("layout", layoutKey); fieldCache = null; render(); };
+
+// ------------------------------------------------------------------ frames
+const armed = (f) => f.state && f.state.steps > 0 && f.state.step >= 0;
+// Mission clock: the controller's own when it sends one (sim time, right even
+// when Gazebo runs slower than real time); wall time since arming otherwise.
+function mt(i) {
+  const s = frames[i].state;
+  if (s && s.mission_ms != null) return s.mission_ms / 1000;
+  return frames[i].t - frames[0].t;
+}
+function ingest(f) {
+  if (f.stats) { lastStats = f.stats; if (f.stats.wake_hist) lastHist = f.stats; }
+  if (!armed(f)) { if (!frames.length) { idle = f; if (!loading) render(); } return; }
+  const prev = frames[frames.length - 1];
+  const restarted = prev && (f.state.mission !== prev.state.mission || f.state.step < prev.state.step ||
+                             (f.state.mission_ms != null && f.state.mission_ms + 50 < prev.state.mission_ms));
+  if (restarted) { frames = []; setupCode(f.state); }
+  else if (prev && prev.state.done) { if (!loading && follow) renderLoop(lastStats, prev.state); return; }
+  if (!frames.length) { setupCode(f.state); autoLayout(f.state); }
+  frames.push(f);
+  if (frames.length > 20000) frames.shift();
+  if (follow || cursor < 0) cursor = follow ? frames.length - 1 : 0;
+  if (!loading) render();
+}
+let idle = null, loading = false;
+
+// ------------------------------------------------------------------ instruction rail
+const kindOf = (t) => t.startsWith("action(") ? "action" : t.startsWith("pid_wait") ? "wait" : t.startsWith("delay(") ? "delay"
+  : /^(pid_(drive|turn|swing|odom)\w*_set|drive_set|pid_odom_set)/.test(t) && !/(constants|exit_condition|max_set|speed|chain_constant|_behavior)/.test(t) ? "motion" : "set";
+let labels = [];
+function setupCode(s) {
+  labels = s.labels && s.labels.length ? s.labels : labels;
+  $("name").textContent = s.mission;
+  const ol = $("code");
+  ol.innerHTML = "";
+  labels.forEach((t, i) => {
+    const li = document.createElement("li");
+    li.className = "k-" + kindOf(t);
+    li.innerHTML = `<span class="ln">${i + 1}</span><span class="g"></span><span class="tx"></span><span class="bd"></span>`;
+    li.querySelector(".tx").textContent = t.replace(/^action\("(.*)"\)$/, "$1");
+    li.title = t;
+    ol.appendChild(li);
+  });
+  fieldCache = null;
+}
+const exitWord = (e) => ({ small_error: "settled", big_error: "settled", passed: "passed", velocity: "stalled", timeout: "timeout" }[e] || "");
+let shownStep = -2;
+function renderCode(i) {
+  const s = frames[i].state, items = $("code").children;
+  if (!labels.length) return;
+  // An exit belongs to the wait that produced it: the nearest wait before the
+  // instruction the controller moved on to.
+  const exits = [];
+  for (let k = 1; k <= i; k++) {
+    const a = frames[k - 1].state, b = frames[k].state;
+    if (b.step === a.step && !(b.done && !a.done)) continue;
+    const upTo = b.done ? labels.length : b.step;
+    for (let j = upTo - 1; j >= 0; j--) if (kindOf(labels[j]) === "wait") { if (!exits[j]) exits[j] = b.last_exit; break; }
   }
-
-  function drawField(f) {
-    const c = $('field'); const [g, W, H] = fit(c);
-    const s = W / FIELD_IN;
-    const toPx = (x, y) => [W / 2 + x * s, H / 2 - y * s];
-    g.fillStyle = '#0e121b'; g.fillRect(0, 0, W, H);
-    g.strokeStyle = '#1b2230'; g.lineWidth = 1;
-    for (let i = 0; i <= 6; i++) {
-      g.beginPath(); g.moveTo(i * TILE * s, 0); g.lineTo(i * TILE * s, H); g.stroke();
-      g.beginPath(); g.moveTo(0, i * TILE * s); g.lineTo(W, i * TILE * s); g.stroke();
-    }
-    g.strokeStyle = '#2a3446'; g.lineWidth = 2; g.strokeRect(1, 1, W - 2, H - 2);
-    // alliance stripes
-    g.fillStyle = 'rgba(239,71,111,.08)'; g.fillRect(0, 0, W, 6 * s);
-    g.fillStyle = 'rgba(76,201,240,.08)'; g.fillRect(0, H - 6 * s, W, 6 * s);
-    const trail = (pts, color, dash) => {
-      if (pts.length < 2) return;
-      g.strokeStyle = color; g.lineWidth = 2; g.setLineDash(dash);
-      g.beginPath(); pts.forEach((p, i) => { const [x, y] = toPx(p.x, p.y); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
-      g.setLineDash([]);
-    };
-    trail(trailTruth, '#f4a261', [4, 4]);
-    trail(trailEst, '#4cc9f0', []);
-    const robot = (p, color, fill) => {
-      const [x, y] = toPx(p.x, p.y); const th = p.theta * Math.PI / 180;
-      g.save(); g.translate(x, y); g.rotate(th);
-      g.fillStyle = fill; g.strokeStyle = color; g.lineWidth = 2;
-      g.fillRect(-ROBOT * s / 2, -ROBOT * s / 2, ROBOT * s, ROBOT * s);
-      g.strokeRect(-ROBOT * s / 2, -ROBOT * s / 2, ROBOT * s, ROBOT * s);
-      g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -ROBOT * s * 0.7); g.stroke();
-      g.restore();
-    };
-    if (f.truth) robot(f.truth, '#f4a261', 'rgba(244,162,97,.10)');
-    if (f.state) robot(f.state, '#4cc9f0', 'rgba(76,201,240,.18)');
-    if (f.state && f.truth) {
-      const e = Math.hypot(f.state.x - f.truth.x, f.state.y - f.truth.y);
-      $('poseErr').textContent = `odom error ${e.toFixed(2)} in`;
-    }
+  for (let j = 0; j < items.length; j++) {
+    const li = items[j], bd = li.querySelector(".bd");
+    const on = j === s.step && !s.done;
+    li.classList.toggle("on", on);
+    li.classList.toggle("done", j < s.step || s.done);
+    bd.className = "bd";
+    if (on && (kindOf(labels[j]) === "wait" || kindOf(labels[j]) === "delay")) {
+      bd.textContent = `${s.error.toFixed(1)} · ${(s.elapsed_ms / 1000).toFixed(2)}s`; bd.classList.add("live");
+    } else if (exits[j]) {
+      bd.textContent = exitWord(exits[j]);
+      if (exits[j] === "velocity" || exits[j] === "timeout") bd.classList.add("warn");
+    } else bd.textContent = "";
   }
+  if (s.step !== shownStep && items[s.step]) items[s.step].scrollIntoView({ block: "nearest" });
+  shownStep = s.step;
+}
 
-  let lastHist = null;
-  function drawHist(st) {
-    const c = $('hist'); const [g, W, H] = fit(c);
-    g.clearRect(0, 0, W, H);
-    if (st && st.wake_hist) lastHist = st.wake_hist; else if (st && lastHist) st = { ...st, wake_hist: lastHist };
-    if (!st || !st.wake_hist) return;
-    const h = st.wake_hist, b = st.bucket_us;
-    let lastNZ = 0; for (let i = 0; i < h.length; i++) if (h[i]) lastNZ = i;
-    const n = Math.max(lastNZ + 2, 16);
-    const maxC = Math.max(1, ...h.slice(0, n));
-    const bw = W / n;
-    const p99 = st.wake_p99 / b, budget = st.period_us / b;
-    for (let i = 0; i < n; i++) {
-      const v = h[i] ? Math.log10(h[i] + 1) / Math.log10(maxC + 1) : 0;
-      g.fillStyle = i * b >= st.period_us ? '#ef476f' : (i >= p99 ? '#f2c14e' : '#4cc9f0');
-      g.fillRect(i * bw + 0.5, H - 16 - v * (H - 22), Math.max(1, bw - 1), v * (H - 22));
-    }
-    g.fillStyle = '#7c8799'; g.font = '10px ui-monospace, monospace'; g.textAlign = 'left';
-    g.fillText('0', 2, H - 4); g.textAlign = 'right'; g.fillText(`${(n * b / 1000).toFixed(2)} ms`, W - 2, H - 4);
-    g.textAlign = 'center'; g.fillText('log count', W / 2, H - 4);
-    if (budget < n) { g.strokeStyle = '#ef476f'; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(budget * bw, 0); g.lineTo(budget * bw, H - 16); g.stroke(); g.setLineDash([]); }
-    $('histNote').textContent = `· ${b} µs buckets · ${st.ticks} ticks · ${st.window_s.toFixed(0)} s`;
+// ------------------------------------------------------------------ field
+const fc = $("field");
+let V = null, fieldCache = null, size = 0;
+function layout() {
+  const r = $("stage").getBoundingClientRect();
+  size = Math.max(200, Math.floor(Math.min(r.width, r.height) - 16));
+  fc.style.width = fc.style.height = size + "px";
+  fc.width = fc.height = Math.round(size * dpr());
+  V = F.view(size, 82);
+  fieldCache = null;
+}
+function sideColor() {
+  const n = (frames[0] || idle || {}).state ? (frames[0] || idle).state.mission : "";
+  return /blue/i.test(n) ? F.BLUE : F.RED;
+}
+function drawFieldLayer(i) {
+  if (!V) return;
+  if (!fieldCache) {
+    fieldCache = document.createElement("canvas");
+    fieldCache.width = fieldCache.height = Math.round(size * dpr());
+    const g = fieldCache.getContext("2d"); g.scale(dpr(), dpr());
+    F.drawField(g, V, layoutKey || "high-stakes");
   }
+  const g = fc.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.drawImage(fieldCache, 0, 0);
+  g.scale(dpr(), dpr());
+  g.lineJoin = g.lineCap = "round";
+  const P = (x, y) => V.px(x, y);
 
-  function drawSeries() {
-    const c = $('series'); const [g, W, H] = fit(c);
-    g.clearRect(0, 0, W, H);
-    if (series.length < 2) return;
-    const t0 = series[0].t, t1 = series[series.length - 1].t;
-    const budget = last && last.stats ? last.stats.period_us : 8333;
-    const lo = Math.log10(10), hi = Math.log10(Math.max(budget * 1.5, ...series.map(p => p.max)));
-    const X = t => 44 + (t - t0) / Math.max(1e-6, t1 - t0) * (W - 48), Y = v => H - 14 - (Math.log10(Math.max(10, v)) - lo) / (hi - lo) * (H - 20);
-    g.strokeStyle = '#3a4356'; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(44, Y(budget)); g.lineTo(W - 4, Y(budget)); g.stroke(); g.setLineDash([]);
-    const line = (k, col) => { g.strokeStyle = col; g.lineWidth = 1.5; g.beginPath(); series.forEach((p, i) => i ? g.lineTo(X(p.t), Y(p[k])) : g.moveTo(X(p.t), Y(p[k]))); g.stroke(); };
-    line('max', '#ef476f'); line('p99', '#4cc9f0');
-    g.fillStyle = '#7c8799'; g.font = '10px ui-monospace, monospace'; g.textAlign = 'right';
-    g.fillText(`${(Math.pow(10, hi) / 1000).toFixed(1)}ms`, 42, 10); g.fillText('10µs', 42, H - 12); if (Y(budget) > 22) g.fillText(`${(budget / 1000).toFixed(1)}ms`, 42, Y(budget) + 3);
+  if (i < 0) {
+    const f = idle;
+    if (f && f.truth) F.drawRobot(g, V, [f.truth.x, f.truth.y, f.truth.theta], { fill: sideColor(), stroke: "#fff", front: "#fff", alpha: 0.6 });
+    return;
   }
-
-  function tile(id, v, unit, cls) {
-    const el = $(id); el.className = 'tile ' + (cls || '');
-    el.querySelector('.v').innerHTML = `${v}${unit ? `<span class="u">${unit}</span>` : ''}`;
-  }
-  const grade = (v, warn, bad) => v > bad ? 'bad' : v > warn ? 'warn' : 'good';
-
-  function renderStats(st) {
-    if (!st) return;
-    const P = st.period_us;
-    tile('t_p50', st.wake_p50.toFixed(0), 'µs', grade(st.wake_p50, P * 0.1, P * 0.25));
-    tile('t_p99', st.wake_p99.toFixed(0), 'µs', grade(st.wake_p99, P * 0.25, P * 0.5));
-    tile('t_max', st.wake_max.toFixed(0), 'µs', grade(st.wake_max, P * 0.5, P));
-    tile('t_jit', st.jitter_rms.toFixed(0), 'µs', grade(st.jitter_rms, P * 0.1, P * 0.25));
-    tile('t_exec', st.exec_p99.toFixed(0), 'µs', grade(st.exec_p99, P * 0.25, P * 0.5));
-    tile('t_over', st.overruns, '', st.overruns ? 'bad' : 'good');
-    tile('t_miss', st.missed, '', st.missed ? 'bad' : 'good');
-    tile('t_stale', st.stale, '', st.stale ? 'warn' : 'good');
-    $('sched').textContent = `${st.policy} · prio ${st.prio} · cpu ${st.cpu} · ${st.mlock ? 'mlock' : 'no mlock'}`;
-    $('sched').className = 'chip ' + (st.policy === 'SCHED_FIFO' || st.policy === 'SCHED_RR' ? 'fifo' : '');
-    $('rate').textContent = `${st.rate.toFixed(0)} Hz · ${P.toFixed(0)} µs`;
-  }
-
-  function renderState(s) {
-    if (!s) return;
-    $('missionName').textContent = `· ${s.mission} · ${Math.min(s.step + 1, s.steps)}/${s.steps}${s.done ? ' · done' : ''}`;
-    if (s.mode) { $('mode').textContent = s.mode; $('mode').className = 'chip' + (s.mode !== 'disabled' ? ' fifo' : ''); }
-    $('intf').hidden = !s.interfered;
-
-    // Mechanism calls are stamped by the controller, so a repeat of the same
-    // action still registers as a new event.
-    if (s.action && s.action !== 'none' && s.action_at_ms > lastActionAt) {
-      lastActionAt = s.action_at_ms;
-      actions.push({ t: s.action_at_ms / 1000, name: s.action });
-      if (actions.length > 40) actions.shift();
-      const ol = $('actions');
-      ol.innerHTML = '';
-      actions.slice().reverse().forEach(a => {
-        const li = document.createElement('li');
-        li.innerHTML = `<span>${a.name}</span><span class="x">${a.t.toFixed(2)} s</span>`;
-        ol.appendChild(li);
-      });
-      $('actNote').textContent = `· ${actions.length}`;
-    }
-    const ol = $('steps');
-    if (ol.children.length !== s.steps) {
-      ol.innerHTML = ''; exits.length = 0;
-      for (let i = 0; i < s.steps; i++) { const li = document.createElement('li'); li.innerHTML = `<span>#${i + 1} <span class="n"></span></span><span class="x"></span>`; ol.appendChild(li); }
-    }
-    // An exit reason belongs to the wait that produced it. Several
-    // instructions can run in one tick, so walk back to the nearest wait
-    // before the current instruction instead of blaming the previous row.
-    const isWait = (i) => s.labels && s.labels[i] && s.labels[i].startsWith("pid_wait");
-    const upTo = s.done ? s.steps : s.step;
-    for (let i = upTo - 1; i >= 0; i--) {
-      if (!isWait(i)) continue;
-      if (!exits[i]) exits[i] = s.last_exit;
-      break;
-    }
-    [...ol.children].forEach((li, i) => {
-      const wasActive = li.className === 'active';
-      li.className = i < s.step || s.done ? 'done' : i === s.step ? 'active' : '';
-      if (li.className === 'active' && !wasActive && ol.scrollHeight > ol.clientHeight)
-        li.scrollIntoView({ block: 'nearest' });
-      li.querySelector('.n').textContent = s.labels && s.labels[i] ? s.labels[i] : '';
-      if (i === s.step && !s.done) li.querySelector('.x').textContent = `err ${s.error.toFixed(2)} · ${(s.elapsed_ms / 1000).toFixed(2)} s`;
-      else li.querySelector('.x').textContent = exits[i] || '';
-    });
-    const bar = (id, v) => { const el = $(id); const pct = Math.abs(v) / 127 * 50; el.style.left = (v < 0 ? 50 - pct : 50) + '%'; el.style.width = pct + '%'; el.style.background = v < 0 ? '#f4a261' : '#4cc9f0'; };
-    bar('bl', s.cmd_l); bar('br', s.cmd_r);
-    $('vl').textContent = s.cmd_l.toFixed(0); $('vr').textContent = s.cmd_r.toFixed(0);
-    $('imu').textContent = `${s.imu.toFixed(1)}°`;
-    $('enc').textContent = `${s.enc_l.toFixed(0)}° / ${s.enc_r.toFixed(0)}°`;
-    $('age').textContent = s.age_us < 0 ? 'no data' : `${(s.age_us / 1000).toFixed(1)} ms`;
-    $('twist').textContent = `${s.v.toFixed(2)} m/s / ${s.w.toFixed(2)} rad/s`;
-  }
-
-  function onFrame(f) {
-    last = f;
-    $('t').textContent = `t = ${f.t.toFixed(1)} s`;
-    if (f.state) { const p = trailEst[trailEst.length - 1]; if (!p || Math.hypot(p.x - f.state.x, p.y - f.state.y) > 0.25) trailEst.push({ x: f.state.x, y: f.state.y }); }
-    if (f.truth) { const p = trailTruth[trailTruth.length - 1]; if (!p || Math.hypot(p.x - f.truth.x, p.y - f.truth.y) > 0.25) trailTruth.push({ x: f.truth.x, y: f.truth.y }); }
-    if (f.state && f.state.step === 0 && f.state.elapsed_ms < 100 && lastStepCount !== f.state.steps) {
-      trailEst.length = 0; trailTruth.length = 0; actions.length = 0; lastActionAt = -1;
-      $('actions').innerHTML = '<li style="color:var(--muted)">none yet</li>';
-      lastStepCount = f.state.steps;
-    }
-    if (f.stats && (!series.length || f.t - series[series.length - 1].t > 0.45)) { series.push({ t: f.t, p99: f.stats.wake_p99, max: f.stats.wake_max }); if (series.length > 240) series.shift(); }
-    if (trailEst.length > 3000) trailEst.shift(); if (trailTruth.length > 3000) trailTruth.shift();
-    renderStats(f.stats); renderState(f.state);
-    drawField(f); drawHist(f.stats); drawSeries();
-  }
-
-  function connect() {
-    const url = `ws://${location.hostname || 'localhost'}:8081`;
-    const ws = new WebSocket(url);
-    ws.onopen = () => { $('conn').textContent = 'live'; $('conn').className = 'chip on'; };
-    ws.onclose = () => { $('conn').textContent = 'disconnected'; $('conn').className = 'chip off'; setTimeout(connect, 1000); };
-    ws.onmessage = e => onFrame(JSON.parse(e.data));
-  }
-  // Offline replay: index.html?replay=run.jsonl
-  const rp = new URLSearchParams(location.search).get('replay');
-  if (rp) {
-    fetch(rp).then(r => r.text()).then(txt => {
-      const frames = txt.trim().split('\n').map(JSON.parse); let i = 0;
-      $('conn').textContent = 'replay'; $('conn').className = 'chip fifo';
-      const step = () => { if (i < frames.length) { onFrame(frames[i++]); setTimeout(step, 33); } };
-      step();
-    });
-  } else connect();
-  window.addEventListener('resize', () => last && onFrame(last));
-  // Snapshot: lazy-load html2canvas (only on click, so the page has no external deps otherwise).
-  window.saveSnapshot = async (name = 'dashboard.png') => {
-    if (!window.html2canvas) await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
-    const c = await html2canvas(document.body, { backgroundColor: '#0b0e14', scale: 2 });
-    const r = await fetch('/snapshot', { method: 'POST', headers: { 'X-Snapshot-Name': name }, body: c.toDataURL('image/png') });
-    return await r.text();
+  const trail = (get, style, width, dash) => {
+    g.strokeStyle = style; g.lineWidth = width; g.setLineDash(dash || []);
+    g.beginPath();
+    let n = 0;
+    for (let k = 0; k <= i; k++) { const p = get(frames[k]); if (!p) continue; const [x, y] = P(p.x, p.y); n++ ? g.lineTo(x, y) : g.moveTo(x, y); }
+    g.stroke(); g.setLineDash([]);
   };
-  $('snap').onclick = () => saveSnapshot().then(p => { $('snap').textContent = 'saved'; setTimeout(() => $('snap').textContent = 'snapshot', 1500); });
-})();
+  // where the robot really went (backend truth), and where odometry thinks it went
+  const real = (f) => f.truth || f.state;
+  trail((f) => f.state, "rgba(255,255,255,0.55)", 1.25, [4, 4]);
+  trail(real, "#f5b800", 2.5);
+
+  // mechanism calls, where the robot was when they fired
+  let lastAt = -1;
+  for (let k = 0; k <= i; k++) {
+    const s = frames[k].state;
+    if (!s.action || s.action === "none" || s.action_at_ms <= lastAt) continue;
+    lastAt = s.action_at_ms;
+    const r = real(frames[k]);
+    const [x, y] = P(r.x, r.y);
+    g.save(); g.translate(x, y); g.rotate(Math.PI / 4);
+    g.fillStyle = "#1fc8f0"; g.strokeStyle = "#14171b"; g.lineWidth = 2;
+    g.beginPath(); g.rect(-3.5, -3.5, 7, 7); g.stroke(); g.fill();
+    g.restore();
+  }
+
+  const f = frames[i], s = f.state;
+  const r = real(f);
+  if (f.truth) F.drawRobot(g, V, [s.x, s.y, s.theta], { stroke: "rgba(255,255,255,0.8)", width: 1.25 });
+  F.drawRobot(g, V, [r.x, r.y, r.theta], { fill: sideColor(), stroke: "#fff", front: "#fff", width: 1.5, alpha: 0.95 });
+
+  const err = f.truth ? Math.hypot(s.x - f.truth.x, s.y - f.truth.y) : null;
+  $("hud").innerHTML = `<span>x <b>${r.x.toFixed(1)}″</b></span><span>y <b>${r.y.toFixed(1)}″</b></span><span>θ <b>${F.wrapDeg(r.theta).toFixed(0)}°</b></span>` +
+    (err != null ? `<span>odom off <b style="color:${err > 6 ? "var(--late)" : err > 2 ? "var(--amber)" : "var(--ink)"}">${err.toFixed(1)}″</b></span>` : "");
+}
+
+// ------------------------------------------------------------------ loop timing
+function renderLoop(st, s) {
+  if (st) {
+    const P = st.period_us;
+    $("sched").textContent = `${st.rate.toFixed(0)} Hz · ${st.policy.replace("SCHED_", "")} ${st.prio} · cpu ${st.cpu}${st.mlock ? "" : " · no mlock"}`;
+    $("wake").innerHTML = `p50 <b>${st.wake_p50.toFixed(0)}</b> · p99 <b>${st.wake_p99.toFixed(0)}</b> · max <b class="${st.wake_max > P ? "bad" : ""}">${st.wake_max.toFixed(0)}</b> µs`;
+    $("exec").innerHTML = `p99 <b>${st.exec_p99.toFixed(0)}</b> µs · budget ${(P / 1000).toFixed(2)} ms`;
+    const bad = (n) => `<b class="${n ? "bad" : ""}">${n}</b>`;
+    $("miss").innerHTML = `${bad(st.missed)} missed · ${bad(st.overruns)} over · ${st.stale} stale / ${st.ticks}`;
+  }
+  if (s) {
+    const bar = (id, v) => { const el = $(id), pct = (Math.min(127, Math.abs(v)) / 127) * 50; el.style.left = (v < 0 ? 50 - pct : 50) + "%"; el.style.width = pct + "%"; };
+    bar("bl", s.cmd_l); bar("br", s.cmd_r);
+    $("mode").textContent = s.done ? "done" : s.mode;
+    $("intf").hidden = !s.interfered;
+  }
+  drawHist(lastHist);
+}
+function drawHist(st) {
+  const c = $("hist"), r = c.getBoundingClientRect();
+  c.width = Math.round(r.width * dpr()); c.height = Math.round(r.height * dpr());
+  const g = c.getContext("2d"); g.setTransform(dpr(), 0, 0, dpr(), 0, 0);
+  const W = r.width, H = r.height;
+  g.clearRect(0, 0, W, H);
+  if (!st || !st.wake_hist) return;
+  const h = st.wake_hist, b = st.bucket_us;
+  let last = 0; for (let k = 0; k < h.length; k++) if (h[k]) last = k;
+  const n = Math.max(last + 2, 20), bw = W / n, top = Math.log10(Math.max(...h.slice(0, n)) + 1);
+  for (let k = 0; k < n; k++) {
+    if (!h[k]) continue;
+    const v = Math.log10(h[k] + 1) / top, y = (H - 12) * (1 - v);
+    g.fillStyle = k * b >= st.period_us ? "#e5534b" : k * b >= st.wake_p99 ? "#f5b800" : "rgba(166,174,184,0.7)";
+    g.fillRect(k * bw, y, Math.max(1, bw - 1), H - 12 - y);
+  }
+  g.fillStyle = "#6c7480"; g.font = "10px " + getComputedStyle(document.body).getPropertyValue("--mono");
+  g.textBaseline = "bottom"; g.textAlign = "left"; g.fillText("0", 0, H);
+  g.textAlign = "right"; g.fillText(`${((n * b) / 1000).toFixed(2)} ms`, W, H);
+}
+
+// ------------------------------------------------------------------ timeline
+const tl = $("tl");
+let TLW = 0;
+function budget() { const n = frames.length ? frames[0].state.mission : idle && idle.state ? idle.state.mission : ""; return /skills/i.test(n) ? 60 : 15; }
+function tmax() { return Math.max(budget(), frames.length ? mt(frames.length - 1) : 0) + 0.5; }
+const tx = (t) => 8 + (t / tmax()) * (TLW - 16);
+const tt = (x) => Math.max(0, Math.min(tmax(), ((x - 8) / (TLW - 16)) * tmax()));
+function drawTimeline() {
+  const r = tl.getBoundingClientRect();
+  TLW = r.width;
+  tl.width = Math.round(r.width * dpr()); tl.height = Math.round(48 * dpr());
+  const g = tl.getContext("2d"); g.setTransform(dpr(), 0, 0, dpr(), 0, 0);
+  const base = 30, B = budget(), T = tmax();
+  g.fillStyle = "rgba(255,255,255,0.045)"; g.fillRect(tx(0), 6, tx(B) - tx(0), base - 6);
+  g.fillStyle = "#252a31"; g.fillRect(tx(0), base, tx(T) - tx(0), 1);
+  g.fillStyle = "#6c7480"; g.font = "10px " + getComputedStyle(document.body).getPropertyValue("--mono");
+  g.textAlign = "center"; g.textBaseline = "top";
+  const step = T > 40 ? 10 : 5;
+  for (let s = 0; s <= T; s += step) { g.fillRect(tx(s), base, 1, 4); g.fillText(String(s), tx(s), base + 6); }
+  g.strokeStyle = "#e5534b"; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(tx(B) + 0.5, 4); g.lineTo(tx(B) + 0.5, base); g.stroke(); g.setLineDash([]);
+  if (!frames.length) return;
+  // progress: one tick per instruction change, cyan for mechanism calls
+  let lastAt = -1;
+  for (let k = 0; k < frames.length; k++) {
+    const s = frames[k].state;
+    if (s.action && s.action !== "none" && s.action_at_ms > lastAt) {
+      lastAt = s.action_at_ms;
+      const x = tx(s.action_at_ms / 1000);
+      g.fillStyle = "rgba(31,200,240,0.6)";
+      g.beginPath(); g.moveTo(x, base + 1); g.lineTo(x - 3, base + 6); g.lineTo(x + 3, base + 6); g.closePath(); g.fill();
+    }
+  }
+  const endK = frames.findIndex((f) => f.state.done);
+  g.fillStyle = "rgba(245,184,0,0.25)";
+  g.fillRect(tx(0), base - 3, tx(mt(endK >= 0 ? endK : frames.length - 1)) - tx(0), 3);
+  if (endK >= 0) {
+    const x = tx(mt(endK)), late = mt(endK) > B;
+    g.fillStyle = late ? "#e5534b" : "#a6aeb8";
+    g.textAlign = "left"; g.textBaseline = "top"; g.fillText(`done ${mt(endK).toFixed(2)}s`, Math.min(x + 4, TLW - 70), 4);
+    g.fillRect(x - 0.5, 6, 1, base - 6);
+  }
+  const x = tx(mt(cursor));
+  g.fillStyle = "#f5b800"; g.fillRect(x - 1, 2, 2, base);
+  g.beginPath(); g.arc(x, 4, 4, 0, Math.PI * 2); g.fill();
+}
+function seekTime(t) {
+  if (!frames.length) return;
+  let k = 0;
+  while (k < frames.length - 1 && mt(k + 1) <= t) k++;
+  cursor = k;
+  follow = !replay && k === frames.length - 1;
+  $("live").hidden = replay || follow;
+  render();
+}
+let scrubbing = false;
+tl.addEventListener("pointerdown", (e) => { scrubbing = true; tl.setPointerCapture(e.pointerId); pause(); seekTime(tt(e.offsetX)); });
+tl.addEventListener("pointermove", (e) => { if (scrubbing) seekTime(tt(e.offsetX)); });
+tl.addEventListener("pointerup", () => { scrubbing = false; });
+$("live").onclick = () => { follow = true; cursor = frames.length - 1; $("live").hidden = true; render(); };
+
+// ------------------------------------------------------------------ render
+function render() {
+  const i = frames.length ? Math.min(cursor, frames.length - 1) : -1;
+  drawFieldLayer(i);
+  if (i >= 0) { renderCode(i); $("clock").textContent = mt(i).toFixed(2); }
+  // stats are the newest we have when following, else the nearest before the cursor
+  let st = lastStats;
+  if (i >= 0 && !follow) for (let k = i; k >= 0; k--) if (frames[k].stats) { st = frames[k].stats; break; }
+  renderLoop(st, i >= 0 ? frames[i].state : idle && idle.state);
+  drawTimeline();
+}
+function resize() { layout(); render(); }
+window.addEventListener("resize", resize);
+
+// ------------------------------------------------------------------ live / replay
+function setConn(cls, text) { $("conn").className = "conn " + cls; $("connText").textContent = text; }
+function connect() {
+  const ws = new WebSocket(`ws://${location.hostname || "localhost"}:8081`);
+  ws.onopen = () => setConn("live", "live");
+  ws.onclose = () => { setConn("off", "offline"); setTimeout(connect, 1000); };
+  ws.onmessage = (e) => ingest(JSON.parse(e.data));
+}
+// Replay a recording (launch arg record:=run.jsonl): index.html?replay=run.jsonl
+const rp = new URLSearchParams(location.search).get("replay");
+let playFrom = 0, playT0 = 0;
+function play() {
+  if (cursor >= frames.length - 1) cursor = 0;
+  playing = true; playFrom = mt(cursor); playT0 = performance.now();
+  $("playIcon").setAttribute("d", "M2 1h3v10H2zM7 1h3v10H7z");
+  requestAnimationFrame(tick);
+}
+function pause() { playing = false; $("playIcon").setAttribute("d", "M2 1l9 5-9 5z"); }
+function tick(now) {
+  if (!playing) return;
+  const t = playFrom + (now - playT0) / 1000;
+  seekTime(t);
+  if (cursor >= frames.length - 1) { pause(); return; }
+  requestAnimationFrame(tick);
+}
+if (rp) {
+  replay = true; follow = false;
+  setConn("replay", "replay");
+  $("play").hidden = false;
+  $("play").onclick = () => (playing ? pause() : play());
+  window.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "SELECT" || !frames.length) return;
+    if (e.key === " ") { e.preventDefault(); playing ? pause() : play(); }
+    else if (e.key === "ArrowRight") { pause(); seekTime(mt(cursor) + (e.shiftKey ? 1 : 0.1)); }
+    else if (e.key === "ArrowLeft") { pause(); seekTime(mt(cursor) - (e.shiftKey ? 1 : 0.1)); }
+  });
+  fetch(rp).then((r) => r.text()).then((txt) => {
+    loading = true;
+    for (const line of txt.trim().split("\n")) ingest(JSON.parse(line));
+    loading = false;
+    cursor = 0;
+    const at = parseFloat(new URLSearchParams(location.hash.slice(1)).get("t"));   // #t=24 opens paused there
+    if (at >= 0) seekTime(at); else { render(); play(); }
+  });
+} else connect();
+resize();
+
+// Snapshot: lazy-load html2canvas only on click, so the page has no external deps otherwise.
+window.saveSnapshot = async (name = "dashboard.png") => {
+  if (!window.html2canvas) await new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+  const c = await html2canvas(document.body, { backgroundColor: "#0f1114", scale: 2 });
+  const r = await fetch("/snapshot", { method: "POST", headers: { "X-Snapshot-Name": name }, body: c.toDataURL("image/png") });
+  return await r.text();
+};
+$("snap").onclick = () => saveSnapshot().then(() => { $("snap").textContent = "saved"; setTimeout(() => ($("snap").textContent = "png"), 1500); });
 </script>
 </body>
 </html>

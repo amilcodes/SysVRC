@@ -14,6 +14,7 @@ int32   step_count
 string  step_name
 float64 step_error
 float64 step_elapsed_ms
+float64 mission_ms           # since the routine started (sim clock); stops when done
 string  last_exit
 string  mode                 # drive | turn | swing | point_to_point | disabled
 bool    done

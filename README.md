@@ -41,7 +41,9 @@ Every routine at once, one line each:
 for f in autons/*.auton; do build/core/auton_check "$f" --brief; done
 ```
 
-More on the disturbance model, the flags, and what the numbers can and can't tell you: [docs/auton_check.md](docs/auton_check.md).
+The report is the field with your routine on it. Scrub the timeline and all the runs move with it as faint outlines, so you can see where they come apart. Your code runs down the side with each wait's exit and each mechanism call's spread, and whatever is still running at the buzzer is marked. Pick High Stakes, skills or Override from the dropdown, flip red/blue, and if your routine starts at (0, 0) drag the robot to where you actually put it.
+
+More on the disturbance model, the flags, the report, and what the numbers can and can't tell you: [docs/auton_check.md](docs/auton_check.md).
 
 ## What lives where
 
@@ -49,7 +51,8 @@ More on the disturbance model, the flags, and what the numbers can and can't tel
 SysVRC/
   core/    the drive controllers (header-only C++, no deps) + auton_check
   autons/  our routines as .auton files, generated from v5/src by the importer
-  tools/   ez_import.py
+  tools/   ez_import.py, build_web.py
+  web/     the report page and the field drawing (build_web.py bakes them into auton_check + the dashboard)
   sim/     ROS 2 workspace (control loop, gazebo model + field, dashboard, scripts)
   v5/      our PROS competition code, same as it always was
   docs/    how it works, what matches EZ and what doesn't, latency numbers
@@ -114,7 +117,9 @@ docker compose -f sim/docker/compose.yaml run --rm --service-ports sim \
   ros2 launch visbot_gazebo sim.launch.py mission:=worlds_mogo_rush.blue cpu:=3 poll_idle:=true spin_us:=500
 ```
 
-Then open http://localhost:8080. You get the field with the controller's odometry drawn over ground truth, the routine's instructions with how each motion exited, mechanism calls with timestamps, and live loop latency.
+Then open http://localhost:8080. You get the field with the robot where it really is and a dashed outline where odometry thinks it is, the routine's lines with how each wait exited, mechanism calls on the path, the match clock, and the loop's wake latency.
+
+![dashboard](docs/dashboard.png)
 
 `mission:=` takes the name of anything in `autons/` (`worlds_mogo_rush.blue`), a path to an `.auton` file, or one of the built-ins (`skills`, `square`, `chain`). The robot spawns where the routine starts: its `# @field_start` if it has one, otherwise its `odom_xyt_set`.
 
@@ -129,7 +134,7 @@ cmake -S core -B build/core && cmake --build build/core && ctest --test-dir buil
 python3 -m unittest discover -s tools/tests
 ```
 
-That's 67 core tests (closed-loop convergence for every motion type, each EZ quirk, kD/kI giving the same result at 100 Hz and 120 Hz, every imported routine running start to finish), 4 auton_check checks, and 17 importer tests.
+That's 68 core tests (closed-loop convergence for every motion type, each EZ quirk, kD/kI giving the same result at 100 Hz and 120 Hz, every imported routine running start to finish), 4 auton_check checks, 17 importer tests, and a check that the generated web files are up to date (edit `web/`, then run `python3 tools/build_web.py`).
 
 Everything else, plus the end-to-end checks over real ROS topics and in Gazebo:
 
@@ -161,16 +166,18 @@ docker compose -f sim/docker/compose.yaml run --rm sim python3 src/sysvrc/sim/to
 
 ## Watching a recorded run
 
-There's a Gazebo run of `worlds_mogo_rush.blue` in `docs/replay/`. You can play it back without ROS:
+There's a Gazebo run of our skills routine in `docs/replay/`. You can play it back without ROS:
 
 ```bash
-cp docs/replay/worlds_mogo_rush_gazebo.jsonl sim/src/visbot_dash/web/ && (cd sim/src/visbot_dash/web && python3 -m http.server 8080)
-# then open http://localhost:8080/?replay=worlds_mogo_rush_gazebo.jsonl
+cp docs/replay/skills_gazebo.jsonl sim/src/visbot_dash/web/ && (cd sim/src/visbot_dash/web && python3 -m http.server 8080)
+# then open http://localhost:8080/?replay=skills_gazebo.jsonl
 ```
+
+Drag the timeline to scrub, space to play, `#t=24` on the URL to open at 24 s. Watch the odometry outline fall behind after the corner pushes: the wheels keep counting while the robot is pinned against the wall. That run was Gazebo in Docker Desktop on a Mac, which is not a realtime host, so ignore its loop latency (61 missed deadlines); see the latency section for what the loop does on a quiet core.
 
 ## Quick troubleshooting
 
-* `auton_check` warns that a routine "pushes with drive_set": the sim doesn't know where the walls are, so a timed shove into the wall drives through open field instead. Give it the real start with `--field-start X,Y,HEADING` (field inches, origin at the centre, +y toward the far wall). If your `odom_xyt_set` already uses field coordinates, use the same numbers.
+* `auton_check` warns that a routine "pushes with drive_set": the routine starts at (0, 0), so the sim doesn't know where the walls are and a timed shove drives through open field instead. Open the report, drag the robot to its real start, and rerun with the `--field-start X,Y,HEADING` it gives you. (A routine whose `odom_xyt_set` already uses field coordinates doesn't need this.)
 * The importer says `NOT IMPORTED` somewhere: that line depended on the robot at runtime (a sensor, the live pose). The sim runs the routine without it, so treat the results after that line with suspicion.
 * "Cannot connect to the Docker daemon": Docker Desktop isn't running. Open it and wait a few seconds.
 * Controller log says `pthread_setschedparam ... failed`: the container doesn't have CAP_SYS_NICE. The compose file adds it; with plain `docker run`, add `--cap-add=SYS_NICE --ulimit rtprio=99 --ulimit memlock=-1`. The loop still runs without it, just not realtime.

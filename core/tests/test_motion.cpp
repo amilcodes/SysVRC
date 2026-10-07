@@ -452,6 +452,20 @@ TEST(a_trailing_motion_without_a_wait_still_runs) {
     EXPECT_NEAR(r.plant.truth().y, -10.0, 1.5);
 }
 
+TEST(mission_clock_runs_with_the_routine_and_stops_at_the_end) {
+    // The dashboard's match clock. It's the controller's own time, so it's
+    // right even when Gazebo runs slower than real time.
+    Rig r;
+    r.ctrl.setMission({Instr::driveSet(24, 110), Instr::wait(), Instr::delay(250)});
+    EXPECT_NEAR(r.ctrl.status().missionMs, 0.0, 1e-12);
+    r.run(5);
+    EXPECT_TRUE(r.ctrl.status().done);
+    const double finished = r.ctrl.status().missionMs;
+    EXPECT_NEAR(finished, r.t * 1000.0, 1000.0 * r.dt + 1e-6);
+    for (int i = 0; i < 60; ++i) r.ctrl.tick(r.plant.sensors(), r.dt);
+    EXPECT_NEAR(r.ctrl.status().missionMs, finished, 1e-12);
+}
+
 TEST(runtime_constant_changes_apply) {
     // slew_drive_constants_set(1_in, 127) effectively turns the launch ramp off.
     Rig r;

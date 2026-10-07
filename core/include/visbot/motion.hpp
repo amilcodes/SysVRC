@@ -223,6 +223,7 @@ struct MotionStatus {
     double error = 0.0;           // primary error of the active motion
     double instrElapsedMs = 0.0;
     double motionElapsedMs = 0.0;
+    double missionMs = 0.0;       // since the routine started; stops when it's done
     bool done = false;
     bool interfered = false;      // ez::interfered: exited on velocity/timeout
     /// Most recent mechanism call. A fixed buffer rather than a pointer into
@@ -283,6 +284,7 @@ public:
         dt_ = dtSeconds;
         totalMs_ += dtSeconds * 1000.0;
         if (status_.done) return {};
+        status_.missionMs = totalMs_;
 
         runProgram();
         status_.mode = mode_;

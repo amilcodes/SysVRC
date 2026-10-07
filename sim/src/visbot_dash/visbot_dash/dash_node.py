@@ -16,6 +16,7 @@ import time
 import rclpy
 from ament_index_python.packages import get_package_share_directory
 from nav_msgs.msg import Odometry
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from visbot_msgs.msg import ControlState, ControlStats
@@ -68,7 +69,8 @@ class DashNode(Node):
         d = {
             "x": m.x, "y": m.y, "theta": m.theta_deg, "mission": m.mission, "labels": list(m.step_labels),
             "step": m.step_index, "steps": m.step_count, "step_name": m.step_name,
-            "error": m.step_error, "elapsed_ms": m.step_elapsed_ms, "last_exit": m.last_exit,
+            "error": m.step_error, "elapsed_ms": m.step_elapsed_ms, "mission_ms": m.mission_ms,
+            "last_exit": m.last_exit,
             "mode": m.mode, "interfered": m.interfered,
             "action": m.last_action, "action_at_ms": m.last_action_at_ms,
             "done": m.done, "imu": m.imu_heading_deg, "enc_l": m.enc_left_deg, "enc_r": m.enc_right_deg,
@@ -162,6 +164,7 @@ async def ws_main(node: DashNode, port):
 
     async def broadcaster():
         n = 0
+        last_labels = None
         while rclpy.ok():
             f = node.snapshot()
             if f["state"] or f["stats"]:
@@ -171,6 +174,12 @@ async def ws_main(node: DashNode, port):
                     rec = dict(f)
                     if n % 30 != 0 and rec.get("stats"):
                         rec["stats"] = {k: v for k, v in rec["stats"].items() if not k.endswith("_hist")}
+                    # The routine's labels only change when a new one arms.
+                    st = rec.get("state")
+                    if st and st.get("labels") == last_labels:
+                        rec["state"] = {k: v for k, v in st.items() if k != "labels"}
+                    elif st:
+                        last_labels = st.get("labels")
                     node.recorder.write(json.dumps(rec) + "\n")
                 n += 1
                 # Iterate over a copy: a browser can connect or disconnect
@@ -188,6 +197,15 @@ async def ws_main(node: DashNode, port):
         await broadcaster()
 
 
+def spin_quietly(node):
+    # Ctrl-C shuts the context down underneath this thread; that's the normal
+    # way out, not an error.
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+
+
 def main():
     rclpy.init()
     node = DashNode()
@@ -195,7 +213,8 @@ def main():
     http_port = node.get_parameter("http_port").value
     ws_port = node.get_parameter("ws_port").value
     threading.Thread(target=serve_http, args=(http_port, web_dir, node.get_logger()), daemon=True).start()
-    threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()
+    spinner = threading.Thread(target=spin_quietly, args=(node,), daemon=True)
+    spinner.start()
     if websockets is None:
         node.get_logger().error("python3-websockets not installed; telemetry stream disabled")
         threading.Event().wait()
@@ -206,7 +225,12 @@ def main():
     finally:
         if node.recorder:
             node.recorder.close()
-        rclpy.shutdown()
+        # launch's SIGINT handling may already have shut the context down
+        if rclpy.ok():
+            rclpy.shutdown()
+        # let spin() return before the interpreter tears down, or the C++
+        # executor aborts the process on exit
+        spinner.join(timeout=2.0)
 
 
 if __name__ == "__main__":
