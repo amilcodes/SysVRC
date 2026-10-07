@@ -55,6 +55,9 @@
   #code .bd { font-size: 11px; color: var(--muted); white-space: nowrap; }
   #code .bd.warn { color: var(--amber); }
   #code .bd.live { color: var(--ink); }
+  #code .bd.ok { color: var(--ink2); }
+  #code .bd.late { color: var(--late); }
+  .tag b { color: var(--ink); font-weight: 600; }
   #code .empty { color: var(--muted); padding: 10px 14px; display: block; }
 
   #loop { border-top: 1px solid var(--line); padding: 8px 12px 10px; font: 11px/1.6 var(--mono); color: var(--ink2); }
@@ -91,6 +94,7 @@
     <span class="conn off" id="conn"><span class="dot"></span><span id="connText">offline</span></span>
     <span class="tag" id="mode"></span>
     <span class="tag warn" id="intf" hidden>interfered</span>
+    <span class="tag" id="score" hidden></span>
     <span class="grow"></span>
     <select id="layout" title="field"></select>
     <span class="tag" id="sched"></span>
@@ -121,6 +125,7 @@
   </footer>
 </div>
 <script src="field.js"></script>
+<script src="game.js"></script>
 <script>
 "use strict";
 const F = window.VexField;
@@ -199,6 +204,63 @@ function setupCode(s) {
   fieldCache = null;
 }
 const exitWord = (e) => ({ small_error: "settled", big_error: "settled", passed: "passed", velocity: "stalled", timeout: "timeout" }[e] || "");
+
+// ------------------------------------------------------------------ game elements
+// With a robot.json (launch with robot:=robots/<name>), run the same element
+// sim as the auton_check report over what this run actually did: the robot
+// where the backend says it was, each mechanism call when the controller
+// stepped past it.
+const GAME = window.VexGame;
+let robotSpec = null, robotModel = null, game = null, gameKey = "";
+fetch("robot.json").then((r) => (r.ok ? r.json() : null)).then((spec) => {
+  if (!spec || !GAME) return;
+  robotSpec = spec; robotModel = GAME.compile(spec);
+  fieldCache = null; render();
+}).catch(() => {});
+const gameOn = () => !!robotModel && GAME.supported(layoutKey || "") && frames.length > 1;
+function realPoseAt(t) {
+  let lo = 0, hi = frames.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (mt(m) <= t) lo = m; else hi = m - 1; }
+  const a = frames[lo], b = frames[Math.min(lo + 1, frames.length - 1)];
+  const pa = a.truth || a.state, pb = b.truth || b.state;
+  const ta = mt(lo), tb = mt(Math.min(lo + 1, frames.length - 1));
+  const u = tb > ta ? Math.max(0, Math.min(1, (t - ta) / (tb - ta))) : 0;
+  let dh = pb.theta - pa.theta; if (dh > 180) dh -= 360; if (dh < -180) dh += 360;
+  return [pa.x + (pb.x - pa.x) * u, pa.y + (pb.y - pa.y) * u, pa.theta + dh * u];
+}
+function runGame() {
+  if (!gameOn()) { game = null; return; }
+  const key = `${frames.length}|${layoutKey}`;
+  if (key === gameKey && game) return;
+  gameKey = key;
+  // action k = the k-th action( line; it fired when the controller stepped past it
+  const actIdx = labels.map((t, j) => (t.startsWith("action(") ? j : -1)).filter((j) => j >= 0);
+  const texts = actIdx.map((j) => labels[j].replace(/^action\("(.*)"\)$/, "$1"));
+  const times = actIdx.map(() => -1);
+  for (let k = 1; k < frames.length; k++) {
+    const a = frames[k - 1].state, b = frames[k].state;
+    const upTo = b.done ? labels.length : b.step;
+    actIdx.forEach((j, n) => { if (times[n] < 0 && j >= Math.max(0, a.step) && j < upTo) times[n] = mt(k); });
+  }
+  if (frames[0].state.step > 0) actIdx.forEach((j, n) => { if (times[n] < 0 && j < frames[0].state.step) times[n] = 0; });
+  const mission = frames[0].state.mission || "";
+  game = GAME.run({ layout: layoutKey, robot: robotModel, alliance: /blue/i.test(mission) ? "blue" : "red",
+                    poseAt: realPoseAt, events: GAME.events(robotModel, texts, times),
+                    end: mt(frames.length - 1), budget: budget() });
+  game.actIdx = actIdx;
+}
+function renderScore(t) {
+  const el = $("score");
+  if (!game) { el.hidden = true; return; }
+  const sc = GAME.scoreAt(game, Math.min(t, budget()), realPoseAt);
+  let html = `<b>${sc.us}</b> pts`;
+  if (sc.awp) {
+    const n = ["rings", "stakes", "line", "ladder"].filter((k) => sc.awp[k]).length;
+    html += ` · AWP ${n === 4 ? "✓" : n + "/4"}`;
+  }
+  el.innerHTML = html;
+  el.hidden = false;
+}
 let shownStep = -2;
 function renderCode(i) {
   const s = frames[i].state, items = $("code").children;
@@ -223,6 +285,10 @@ function renderCode(i) {
     } else if (exits[j]) {
       bd.textContent = exitWord(exits[j]);
       if (exits[j] === "velocity" || exits[j] === "timeout") bd.classList.add("warn");
+    } else if (game && j < (s.done ? labels.length : s.step) && game.actIdx.includes(j)) {
+      const o = game.outcome[game.actIdx.indexOf(j)];
+      bd.textContent = o && o.ok !== null ? o.text : "";
+      if (o && o.ok === false) bd.classList.add("late"); else if (o && o.ok) bd.classList.add("ok");
     } else bd.textContent = "";
   }
   if (s.step !== shownStep && items[s.step]) items[s.step].scrollIntoView({ block: "nearest" });
@@ -250,7 +316,7 @@ function drawFieldLayer(i) {
     fieldCache = document.createElement("canvas");
     fieldCache.width = fieldCache.height = Math.round(size * dpr());
     const g = fieldCache.getContext("2d"); g.scale(dpr(), dpr());
-    F.drawField(g, V, layoutKey || "high-stakes");
+    F.drawField(g, V, layoutKey || "high-stakes", { elements: !(robotModel && GAME.supported(layoutKey || "")) });
   }
   const g = fc.getContext("2d");
   g.setTransform(1, 0, 0, 1, 0, 0);
@@ -292,8 +358,13 @@ function drawFieldLayer(i) {
 
   const f = frames[i], s = f.state;
   const r = real(f);
-  if (f.truth) F.drawRobot(g, V, [s.x, s.y, s.theta], { stroke: "rgba(255,255,255,0.8)", width: 1.25 });
-  F.drawRobot(g, V, [r.x, r.y, r.theta], { fill: sideColor(), stroke: "#fff", front: "#fff", width: 1.5, alpha: 0.95 });
+  const t = mt(i);
+  const gs = game ? GAME.stateAt(game, t) : null;
+  if (gs) F.drawElements(g, V, layoutKey, gs);
+  const shape = robotModel ? { w: robotModel.w, l: robotModel.l, outline: robotModel.outline } : {};
+  if (f.truth) F.drawRobot(g, V, [s.x, s.y, s.theta], { ...shape, stroke: "rgba(255,255,255,0.8)", width: 1.25 });
+  F.drawRobot(g, V, [r.x, r.y, r.theta], { ...shape, fill: sideColor(), stroke: "#fff", front: "#fff", width: 1.5, alpha: 0.95 });
+  if (gs && gs.inRobot.length) F.drawStack(g, V, r.x, r.y, gs.inRobot, 0.8);
 
   const err = f.truth ? Math.hypot(s.x - f.truth.x, s.y - f.truth.y) : null;
   $("hud").innerHTML = `<span>x <b>${r.x.toFixed(1)}″</b></span><span>y <b>${r.y.toFixed(1)}″</b></span><span>θ <b>${F.wrapDeg(r.theta).toFixed(0)}°</b></span>` +
@@ -402,7 +473,9 @@ $("live").onclick = () => { follow = true; cursor = frames.length - 1; $("live")
 // ------------------------------------------------------------------ render
 function render() {
   const i = frames.length ? Math.min(cursor, frames.length - 1) : -1;
+  runGame();
   drawFieldLayer(i);
+  renderScore(i >= 0 ? mt(i) : 0);
   if (i >= 0) { renderCode(i); $("clock").textContent = mt(i).toFixed(2); }
   // stats are the newest we have when following, else the nearest before the cursor
   let st = lastStats;

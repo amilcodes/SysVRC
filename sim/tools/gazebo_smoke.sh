@@ -30,9 +30,9 @@ for t in /visbot/imu /visbot/joint_states /visbot/odom; do
   printf "%-22s %s\n" "$t" "${rate:-NO DATA}"
   [ "$t" = /visbot/imu ] && [ -n "$rate" ] && imu_ok=1
 done
-STATE=$(echo_once /visbot/control_state)
-STATS=$(echo_once /visbot/control_stats --no-arr)
-ODOM=$(echo_once /visbot/odom)
+STATE=$(echo_once /visbot/control_state visbot_msgs/msg/ControlState)
+STATS=$(echo_once /visbot/control_stats visbot_msgs/msg/ControlStats --no-arr)
+ODOM=$(echo_once /visbot/odom nav_msgs/msg/Odometry)
 echo "--- controller ---"
 echo "$STATE" | grep -E "^(x|y|theta_deg|step_index|step_count|step_name|last_exit|done):" || echo "(no control_state)"
 echo "$STATS" | grep -E "^(sched_policy|ticks|overruns|missed_deadlines|stale_sensor_ticks|wake_latency_p99_us|wake_latency_max_us|sensor_age_mean_us):" || true

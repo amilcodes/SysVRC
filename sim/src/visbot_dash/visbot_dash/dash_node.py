@@ -49,7 +49,11 @@ class DashNode(Node):
         self.declare_parameter("ws_port", 8081)
         self.declare_parameter("record", "")
         self.declare_parameter("snapshot_dir", "/tmp")
+        self.declare_parameter("robot", "")
         DashHandler.snapshot_dir = self.get_parameter("snapshot_dir").value
+        # robot.json from tools/robot_studio: the page runs the game-element
+        # sim with its mechanisms
+        DashHandler.robot_json = self.get_parameter("robot").value
         self.frame = {"state": None, "stats": None, "truth": None, "t0": time.time()}
         self.lock = threading.Lock()
         self.create_subscription(ControlState, "/visbot/control_state", self.on_state, 10)
@@ -111,6 +115,23 @@ class DashHandler(http.server.SimpleHTTPRequestHandler):
     """Static files plus POST /snapshot: the page renders itself to a PNG and
     the node writes it to `snapshot_dir` (docs screenshots, CI artifacts)."""
     snapshot_dir = "/tmp"
+    robot_json = ""
+
+    def do_GET(self):
+        if self.path.split("?")[0] == "/robot.json":
+            try:
+                with open(self.robot_json, "rb") as f:
+                    data = f.read()
+            except OSError:
+                self.send_error(404, "no robot.json (launch with robot:=robots/<name>)")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        super().do_GET()
 
     def log_message(self, *a, **k):
         pass

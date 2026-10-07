@@ -5,12 +5,14 @@
 // Sensor cadence and transport delay are parameters so the controller can be
 // exercised against V5-like timing (10 ms sensors, a few ms of bus latency)
 // without a physics engine in the loop.
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <cmath>
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
@@ -18,6 +20,7 @@
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "visbot/auton_file.hpp"
+#include "visbot/robot_spec.hpp"
 #include "visbot/visbot.hpp"
 #include "visbot_control/latest_value.hpp"
 #include "visbot_control/rt_loop.hpp"
@@ -43,6 +46,18 @@ public:
         pp_.imuNoiseStdDeg = declare_parameter("imu_noise_std_deg", pp_.imuNoiseStdDeg);
         pp_.imuDriftDegPerS = declare_parameter("imu_drift_deg_per_s", pp_.imuDriftDegPerS);
         pp_.slipFraction = declare_parameter("slip_fraction", pp_.slipFraction);
+        // robot.json from tools/robot_studio: the drivetrain as built
+        const std::string robotPath = declare_parameter("robot", std::string(""));
+        if (!robotPath.empty()) {
+            const visbot::RobotSpecResult rr = visbot::loadRobotSpec(robotPath);
+            if (!rr.ok()) throw std::runtime_error(robotPath + ": " + rr.errors.front());
+            rp_ = rr.spec.physical;
+            pp_.motorTauSec = rr.spec.motorTauSec;
+            pp_.encoderScale = rr.spec.encoderScale;
+            pp_.robotHalfIn = std::max(rp_.robotWidthIn, rp_.robotLengthIn) / 2;
+            RCLCPP_INFO(get_logger(), "robot %s: %.2f in wheels @ %.0f rpm, track %.1f in, response %.2f s",
+                        rr.spec.name.c_str(), rp_.wheelDiameterIn, rp_.wheelRpm, rp_.trackWidthIn, pp_.motorTauSec);
+        }
         visbot::Pose start;
         start.x = declare_parameter("start_x_in", 0.0);
         start.y = declare_parameter("start_y_in", 0.0);

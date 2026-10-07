@@ -13,6 +13,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -25,6 +26,7 @@
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "visbot/auton_file.hpp"
+#include "visbot/robot_spec.hpp"
 #include "visbot/visbot.hpp"
 #include "visbot_control/latest_value.hpp"
 #include "visbot_control/rt_loop.hpp"
@@ -87,6 +89,16 @@ public:
         params_.trackWidthIn = declare_parameter("track_width_in", params_.trackWidthIn);
         params_.wheelDiameterIn = declare_parameter("wheel_diameter_in", params_.wheelDiameterIn);
         params_.wheelRpm = declare_parameter("wheel_rpm", params_.wheelRpm);
+        // robot.json: the controller believes what the code tells EZ, which
+        // isn't always what the robot is (that's the point of checking)
+        const std::string robotPath = declare_parameter("robot", std::string(""));
+        if (!robotPath.empty()) {
+            const visbot::RobotSpecResult rr = visbot::loadRobotSpec(robotPath);
+            if (!rr.ok()) throw std::runtime_error(robotPath + ": " + rr.errors.front());
+            params_ = rr.spec.declared;
+            RCLCPP_INFO(get_logger(), "robot %s: code declares %.2f in wheels @ %.0f rpm", rr.spec.name.c_str(),
+                        params_.wheelDiameterIn, params_.wheelRpm);
+        }
         startPose_.x = declare_parameter("start_x_in", 0.0);
         startPose_.y = declare_parameter("start_y_in", 0.0);
         startPose_.theta = declare_parameter("start_theta_deg", 0.0);

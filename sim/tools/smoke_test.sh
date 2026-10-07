@@ -20,8 +20,8 @@ teardown() {
 trap teardown EXIT
 sleep "$SECS"
 
-STATE=$(echo_once /visbot/control_state)
-STATS=$(echo_once /visbot/control_stats --no-arr)
+STATE=$(echo_once /visbot/control_state visbot_msgs/msg/ControlState)
+STATS=$(echo_once /visbot/control_stats visbot_msgs/msg/ControlStats --no-arr)
 echo "$STATE" | grep -E "^(x|y|theta_deg|step_index|step_count|step_name|last_exit|done):" || echo "(no control_state)"
 echo "$STATS" | grep -E "^(sched_policy|priority|memory_locked|ticks|overruns|missed_deadlines|stale_sensor_ticks|wake_latency_p50_us|wake_latency_p99_us|wake_latency_max_us|jitter_rms_us|exec_p99_us|sensor_age_mean_us):" || true
 

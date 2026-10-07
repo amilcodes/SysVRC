@@ -2,8 +2,10 @@
 <!--
   SysVRC drivebase for Gazebo Harmonic.
 
-  Geometry mirrors core/include/visbot/constants.hpp (RobotParams):
+  Geometry defaults mirror core/include/visbot/constants.hpp (RobotParams):
     wheel diameter 3.25 in, track width 12.5 in, 15 x 15 in chassis, 7.5 kg.
+  sim.launch.py robot:=robots/<name> overrides them from that robot.json, and
+  uses the CAD (robots/<name>/model.glb, robot frame) as the visual.
   Six drive motors are collapsed to two driven wheels plus frictionless casters:
   the kinematics are what the controller cares about.
 
@@ -12,15 +14,26 @@
   burst), wheel encoders via joint states at 100 Hz.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="visbot">
+  <xacro:arg name="wheel_d_in" default="3.25"/>
+  <xacro:arg name="track_in" default="12.5"/>
+  <xacro:arg name="length_in" default="15"/>
+  <xacro:arg name="width_in" default="15"/>
+  <xacro:arg name="mass_kg" default="7.5"/>
+  <!-- 450 rpm on 3.25 in wheels = 1.95 m/s; 0.12 s motor time constant -->
+  <xacro:arg name="max_v" default="1.95"/>
+  <xacro:arg name="max_w" default="12.3"/>
+  <xacro:arg name="max_a" default="16"/>
+  <xacro:arg name="mesh" default=""/>
   <xacro:property name="inch" value="0.0254"/>
-  <xacro:property name="wheel_r" value="${3.25 * inch / 2}"/>
+  <xacro:property name="wheel_r" value="${$(arg wheel_d_in) * inch / 2}"/>
   <xacro:property name="wheel_w" value="${1.0 * inch}"/>
-  <xacro:property name="track" value="${12.5 * inch}"/>
-  <xacro:property name="body_l" value="${15 * inch}"/>
-  <xacro:property name="body_w" value="${15 * inch}"/>
+  <xacro:property name="track" value="${$(arg track_in) * inch}"/>
+  <xacro:property name="body_l" value="${$(arg length_in) * inch}"/>
+  <xacro:property name="body_w" value="${$(arg width_in) * inch}"/>
   <xacro:property name="body_h" value="${4 * inch}"/>
   <xacro:property name="clearance" value="${0.75 * inch}"/>
-  <xacro:property name="mass" value="7.5"/>
+  <xacro:property name="mass" value="$(arg mass_kg)"/>
+  <xacro:property name="mesh" value="$(arg mesh)"/>
   <xacro:arg name="imu_hz" default="200"/>
   <xacro:arg name="joint_hz" default="100"/>
 
@@ -36,16 +49,26 @@
       <inertia ixx="${mass/12*(body_w*body_w+body_h*body_h)}" iyy="${mass/12*(body_l*body_l+body_h*body_h)}"
                izz="${mass/12*(body_l*body_l+body_w*body_w)}" ixy="0" ixz="0" iyz="0"/>
     </inertial>
-    <visual>
-      <geometry><box size="${body_l} ${body_w} ${body_h}"/></geometry>
-      <material name="chassis"/>
-    </visual>
-    <!-- heading marker -->
-    <visual>
-      <origin xyz="${body_l*0.35} 0 ${body_h/2+0.005}"/>
-      <geometry><box size="${body_l*0.25} ${body_w*0.15} 0.01"/></geometry>
-      <material name="accent"/>
-    </visual>
+    <xacro:if value="${mesh == ''}">
+      <visual>
+        <geometry><box size="${body_l} ${body_w} ${body_h}"/></geometry>
+        <material name="chassis"/>
+      </visual>
+      <!-- heading marker -->
+      <visual>
+        <origin xyz="${body_l*0.35} 0 ${body_h/2+0.005}"/>
+        <geometry><box size="${body_l*0.25} ${body_w*0.15} 0.01"/></geometry>
+        <material name="accent"/>
+      </visual>
+    </xacro:if>
+    <xacro:unless value="${mesh == ''}">
+      <!-- the team's CAD, written by robot_studio in its robot frame (x right, y forward, z up, origin on
+           the floor under the drive): turn it to base_link's x-forward and drop it to the floor -->
+      <visual>
+        <origin xyz="0 0 ${-(body_h/2 + clearance)}" rpy="0 0 ${-pi/2}"/>
+        <geometry><mesh filename="${mesh}"/></geometry>
+      </visual>
+    </xacro:unless>
     <collision>
       <geometry><box size="${body_l} ${body_w} ${body_h}"/></geometry>
     </collision>
@@ -135,13 +158,12 @@
       <odom_publish_frequency>50</odom_publish_frequency>
       <frame_id>field</frame_id>
       <child_frame_id>base_link</child_frame_id>
-      <!-- 450 rpm on 3.25 in wheels = 1.95 m/s; 0.12 s motor time constant -->
-      <max_linear_velocity>1.95</max_linear_velocity>
-      <min_linear_velocity>-1.95</min_linear_velocity>
-      <max_angular_velocity>12.3</max_angular_velocity>
-      <min_angular_velocity>-12.3</min_angular_velocity>
-      <max_linear_acceleration>16</max_linear_acceleration>
-      <min_linear_acceleration>-16</min_linear_acceleration>
+      <max_linear_velocity>$(arg max_v)</max_linear_velocity>
+      <min_linear_velocity>-$(arg max_v)</min_linear_velocity>
+      <max_angular_velocity>$(arg max_w)</max_angular_velocity>
+      <min_angular_velocity>-$(arg max_w)</min_angular_velocity>
+      <max_linear_acceleration>$(arg max_a)</max_linear_acceleration>
+      <min_linear_acceleration>-$(arg max_a)</min_linear_acceleration>
       <max_angular_acceleration>100</max_angular_acceleration>
       <min_angular_acceleration>-100</min_angular_acceleration>
     </plugin>
