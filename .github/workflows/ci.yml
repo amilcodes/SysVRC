@@ -24,7 +24,7 @@ jobs:
       - name: path.jerryio import, end to end (needs auton_check)
         run: python3 -m unittest tools/tests/test_path_import.py -v
       - name: game element sim (web/game.js)
-        run: node --test web/tests/
+        run: node --test web/tests/*.test.js
 
   importer:
     name: tools (autons/ and generated web files up to date)

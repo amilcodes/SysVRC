@@ -1,4 +1,4 @@
-// node --test web/tests
+// node --test web/tests/*.test.js
 // The High Stakes element sim in web/game.js, on hand-made trajectories.
 "use strict";
 const test = require("node:test");

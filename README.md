@@ -151,7 +151,7 @@ That's 76 core tests (closed-loop convergence for every motion type, each EZ qui
 
 ```bash
 python3 -m unittest discover -s tools/robot_studio/tests     # 26, on a fixture robot whose parts are known
-node --test web/tests/                                       # 9, the High Stakes element sim
+node --test web/tests/*.test.js                              # 9, the High Stakes element sim
 ```
 
 Everything else, plus the end-to-end checks over real ROS topics and in Gazebo:
