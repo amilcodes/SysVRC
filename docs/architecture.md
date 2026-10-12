@@ -116,3 +116,18 @@ gains behave identically in the 120 Hz sim loop — `test_pid.cpp` checks this.
 The controller subscribes to the same three topics from either backend, so
 swapping Gazebo for the kinematic plant is a launch-file choice, not a code
 change. The plant is deterministic (xorshift noise, fixed seed) and runs in CI.
+
+## Launch args
+
+Both `plant.launch.py` and `sim.launch.py` take:
+
+| arg | |
+|---|---|
+| `mission:=` | a name in `autons/`, a path to an `.auton`, or a built-in (`skills`, `square`, `chain`). The robot spawns at the routine's `# @field_start`, else its `odom_xyt_set` |
+| `robot:=robots/<name>` | a robot from the studio: its drivetrain, size and CAD instead of the default drivebase |
+| `sched:=fifo\|rr\|other` | the control thread's scheduling policy |
+| `cpu:=N` | pin the control thread to a core |
+| `poll_idle:=true`, `spin_us:=N` | keep the core awake / spin before each deadline (see [latency.md](latency.md)) |
+| `dash:=false` | no dashboard |
+| `record:=file.jsonl` | record the run for replay |
+| `gui:=true` | Gazebo's GUI (needs an X display) |

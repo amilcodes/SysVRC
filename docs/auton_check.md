@@ -86,6 +86,8 @@ Each row varies one thing and holds the rest perfect. For this routine, where th
 
 ## The report
 
+![report](img/auton_check_report.png)
+
 `--html` writes one file that needs no network, so it opens on a laptop at an event. It's the field with your routine on it:
 
 * the clean run's path, the robot at the playhead, and every disturbed run as a faint outline, so you can watch where they come apart
