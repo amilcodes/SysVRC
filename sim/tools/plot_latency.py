@@ -28,7 +28,7 @@ for name in order:
     if os.path.exists(j) and os.path.exists(c):
         runs[name] = (json.load(open(j)), np.genfromtxt(c, delimiter=",", names=True))
 if not runs:
-    sys.exit("no bench results in docs/bench — run sim/tools/bench.sh first")
+    sys.exit("no bench results in docs/bench; run sim/tools/bench.sh first")
 
 # ---- markdown table ----
 lines = ["| configuration | p50 | p99 | p99.9 | max | jitter rms | missed deadlines | overruns |",

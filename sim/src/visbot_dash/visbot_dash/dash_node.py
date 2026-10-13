@@ -1,4 +1,4 @@
-"""visbot_dash — serves web/index.html on :8080 and streams telemetry on ws://:8081.
+"""visbot_dash: serves web/index.html on :8080 and streams telemetry on ws://:8081.
 
 Subscribes to the controller's state/stats topics and the backend's ground-truth
 odometry, merges them into one JSON frame at 30 Hz, and fans it out to every
@@ -190,7 +190,7 @@ async def ws_main(node: DashNode, port):
             f = node.snapshot()
             if f["state"] or f["stats"]:
                 msg = json.dumps(f)
-                # Recording: 10 Hz, histograms once a second — keeps a minute under ~1 MB.
+                # Recording: 10 Hz, histograms once a second. A minute stays under ~1 MB.
                 if node.recorder and n % 3 == 0:
                     rec = dict(f)
                     if n % 30 != 0 and rec.get("stats"):

@@ -1,13 +1,8 @@
-// visbot/slew.hpp — a faithful port of ez::slew (EZ-Template v3.2.2).
+// visbot/slew.hpp: port of ez::slew, EZ-Template v3.2.2 (src/EZ-Template/slew.cpp).
 //
-// EZ's slew is a straight line in *error space*: at the start of a motion it
-// builds y = mx + b through (x_intercept, sign*min_speed) and (current,
-// max_speed), where x_intercept is `distance_to_travel` beyond the current
-// sensor value. Each tick it evaluates that line at the remaining distance
-// to the intercept, so the cap ramps from min_speed up to max_speed over the
-// first `distance_to_travel` units of travel and then latches off.
-//
-// Verified against src/EZ-Template/slew.cpp.
+// EZ's slew is a line in position, not time: the speed cap ramps from
+// min_speed to max_speed over the first distance_to_travel of the motion,
+// then switches off for good.
 #pragma once
 
 #include <cmath>
@@ -29,8 +24,7 @@ public:
     void setConstants(double distance, double minSpeed) { c_ = {distance, minSpeed}; }
     Constants constants() const { return c_; }
 
-    /// ez::slew::initialize. Note EZ disables slew outright when the
-    /// requested max speed is below min_speed — a slow motion is not ramped.
+    /// ez::slew::initialize. A motion slower than min_speed isn't ramped at all.
     void initialize(bool enabled, double maximumSpeed, double target, double current) {
         enabled_ = maximumSpeed < c_.minSpeed ? false : enabled;
         maxSpeed_ = maximumSpeed;
@@ -42,12 +36,12 @@ public:
         lastOutput_ = enabled_ ? c_.minSpeed : maxSpeed_;
     }
 
-    /// ez::slew::iterate — returns the current speed cap.
+    /// ez::slew::iterate. Returns the speed cap for this tick.
     double iterate(double current) {
         if (enabled_) {
             error_ = xIntercept_ - current;
             if (sgn(error_) != sign_) {
-                enabled_ = false;          // travelled past the ramp: done
+                enabled_ = false;          // past the ramp, done for this motion
                 lastOutput_ = maxSpeed_;
             } else {
                 lastOutput_ = ((slope_ * error_) + yIntercept_) * sign_;

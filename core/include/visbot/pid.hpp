@@ -1,16 +1,11 @@
-// visbot/pid.hpp — a faithful port of ez::PID (EZ-Template v3.2.2).
+// visbot/pid.hpp: port of ez::PID, EZ-Template v3.2.2 (src/EZ-Template/PID.cpp).
 //
-// This is deliberately a *port*, not an improvement: the point of the testbed
-// is that what you tune here is what the V5 brain does. Where EZ has a quirk,
-// this has the same quirk, marked `EZ quirk:` with what the textbook version
-// would be. Verified against EZ-Template v3.2.2 src/EZ-Template/PID.cpp.
+// Kept bug-for-bug with EZ so gains tuned here mean the same thing on the
+// brain. Anything that isn't textbook PID is marked "EZ quirk".
 //
-// Rate independence: EZ ticks at util::DELAY_TIME = 10 ms and its kD is a raw
-// per-tick delta (not divided by dt), while its integral is a raw per-tick
-// sum. To run the same gains in a 120 Hz loop, the derivative is rescaled to
-// a 10 ms tick and the integral accumulates per 10 ms-equivalent. Pass the
-// real loop period as `dtSeconds` and the controller behaves as if it were
-// the 100 Hz brain loop. See test_pid.cpp::derivative_is_rate_invariant.
+// EZ runs every 10 ms and its D and I terms are per tick, not per second. The
+// sim loop is 120 Hz, so both get scaled back to a 10 ms tick from the real
+// dt. test_pid.cpp checks the output doesn't depend on the loop rate.
 #pragma once
 
 #include <cmath>
@@ -40,8 +35,8 @@ struct ExitConditions {
     }
 };
 
-/// Passed is not an EZ exit: it marks a pid_wait_until / pid_wait_quick that
-/// released because the robot crossed its target, not because a PID settled.
+/// Passed isn't an EZ exit. It's what a pid_wait_until / pid_wait_quick
+/// reports when the robot crossed its target instead of settling on it.
 enum class ExitReason : uint8_t { Running = 0, SmallError, BigError, Velocity, Timeout, NoConstants, Passed };
 
 inline const char* toString(ExitReason r) {
@@ -59,9 +54,9 @@ inline const char* toString(ExitReason r) {
 
 class Pid {
 public:
-    /// ez::util::DELAY_TIME — the rate EZ's gains were tuned at.
+    /// ez::util::DELAY_TIME, the tick EZ's gains assume.
     static constexpr double kEzTickSec = 0.010;
-    /// ez::PID::velocity_zero_main — |derivative| below this counts as stopped.
+    /// ez::PID::velocity_zero_main: |derivative| below this counts as stopped.
     static constexpr double kVelocityZero = 0.05;
 
     Pid() = default;
@@ -72,15 +67,14 @@ public:
     const PidGains& gains() const { return gains_; }
     const ExitConditions& exitConditions() const { return exit_; }
 
-    /// ez::PID::target_set — note EZ does NOT clear the integral or the
-    /// previous measurement here, so a re-target mid-motion keeps its state.
-    /// That matters for motion chaining (pid_wait_quick_chain moves the
-    /// target while the loop is running).
+    /// ez::PID::target_set. Doesn't touch the integral or the last
+    /// measurement, which is what lets pid_wait_quick_chain move the target
+    /// mid-motion without a bump.
     void setTarget(double t) { target_ = t; }
     double target() const { return target_; }
     void addToTarget(double d) { target_ += d; }
 
-    /// ez::PID::reset_variables — called when a *new* motion starts.
+    /// ez::PID::reset_variables, called when a new motion starts.
     void reset() {
         integral_ = 0.0;
         prevError_ = 0.0;
@@ -100,26 +94,24 @@ public:
         return computeError(target_ - current, current, dtSeconds);
     }
 
-    /// ez::PID::compute_error(err, current) — used where the caller wraps the
-    /// error itself (turns, odom angular). `current` is still required: the
-    /// derivative is taken on the measurement, not the error.
+    /// ez::PID::compute_error. For callers that wrap the error themselves
+    /// (turns, odom angular). Still needs `current` because D is taken on the
+    /// measurement.
     double computeError(double error, double current, double dtSeconds = kEzTickSec) {
         const double tickScale = dtSeconds / kEzTickSec;  // 1.0 at 100 Hz, 0.8333 at 120 Hz
         error_ = error;
         cur_ = current;
         if (first_) { prevCurrent_ = cur_; prevError_ = error_; first_ = false; }
 
-        // Derivative on measurement, not error, to avoid derivative kick when
-        // the target moves. Rescaled to a 10 ms tick for rate independence.
+        // D on measurement so moving the target doesn't kick the output.
         derivative_ = (cur_ - prevCurrent_) / tickScale;
 
         if (gains_.kI != 0.0) {
             if (std::fabs(error_) < gains_.startI) integral_ += error_ * tickScale;
 
-            // EZ quirk: the sign-flip reset compares the error's sign against
-            // the sign of the previous *measurement*, not the previous error.
-            // Textbook would be sgn(error) != sgn(prevError). Replicated
-            // because this is what runs on the robot; see setTextbookIReset().
+            // EZ quirk: the sign-flip reset compares against the previous
+            // *measurement*, not the previous error. Probably a bug in EZ, but
+            // it's what the brain runs. setTextbookIReset() if you want the fix.
             const double against = textbookIReset_ ? prevError_ : prevCurrent_;
             if (sgn(error_) != sgn(against)) integral_ = 0.0;
         }
@@ -132,7 +124,7 @@ public:
         return output_;
     }
 
-    /// Opt out of the EZ integral-reset quirk (off by default: match the robot).
+    /// Use sgn(prevError) for the integral reset instead of EZ's version.
     void setTextbookIReset(bool on) { textbookIReset_ = on; }
 
     double output() const { return output_; }
@@ -141,17 +133,14 @@ public:
     double integral() const { return integral_; }
     double elapsedMs() const { return elapsedMs_; }
 
-    /// ez::PID::exit_condition — call once per tick after compute().
+    /// ez::PID::exit_condition. Call once per tick after compute().
     ///
-    /// EZ quirk: small and big are `if / else if`. When small_error is set
-    /// (which every motion in autons.cpp does), the big-error branch is dead
-    /// code and BigError can never be returned. Replicated exactly; the
-    /// textbook reading — "big is a looser fallback that also applies" — is
-    /// what a naive port produces and it makes motions exit early.
+    /// EZ quirk: small and big are if / else if, so once small_error is set
+    /// (every motion in autons.cpp sets it) BigError can never fire. Porting
+    /// it as "big is a looser fallback" makes motions exit early.
     ///
-    /// `timeoutMs` is not an EZ feature; EZ relies on velocity/mA exits. It
-    /// is kept here as a backstop for headless runs and is reported
-    /// separately so it can't be mistaken for robot behaviour.
+    /// timeoutMs isn't in EZ. It's a backstop so a stuck headless run ends,
+    /// and it reports as Timeout so it can't pass for robot behaviour.
     ExitReason exitCondition(double dtSeconds = kEzTickSec, double timeoutMs = 0.0) {
         if (!exit_.any()) return ExitReason::NoConstants;
         const double ms = dtSeconds * 1000.0;
@@ -160,7 +149,7 @@ public:
         if (exit_.smallError != 0.0) {
             if (ae < exit_.smallError) {
                 smallMs_ += ms;
-                bigMs_ = 0.0;  // while small is running, big does not
+                bigMs_ = 0.0;  // big doesn't run while small is counting
                 if (smallMs_ > exit_.smallTimeMs) { resetTimers(); return ExitReason::SmallError; }
             } else {
                 smallMs_ = 0.0;

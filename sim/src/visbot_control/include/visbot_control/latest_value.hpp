@@ -1,4 +1,4 @@
-// visbot_control/latest_value.hpp — single-writer / single-reader mailbox for
+// visbot_control/latest_value.hpp: single-writer / single-reader mailbox for
 // sensor samples. The subscription callback (executor thread) writes, the RT
 // thread reads the newest sample without taking a lock or allocating.
 //

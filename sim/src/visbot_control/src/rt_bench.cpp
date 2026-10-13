@@ -1,4 +1,4 @@
-// rt_bench — measures the control loop's wake latency and execution time
+// rt_bench: measures the control loop's wake latency and execution time
 // with no ROS in the process. The tick runs the real controller against the
 // kinematic plant so the execution-time numbers are representative.
 //
@@ -7,6 +7,7 @@
 // Prints a JSON summary to stdout. --stress N spawns N busy-loop threads to
 // contend for CPU, which is where SCHED_OTHER falls apart and SCHED_FIFO
 // doesn't.
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -45,6 +46,7 @@ int main(int argc, char** argv) {
     // CPU hogs: unpinned SCHED_OTHER busy loops.
     std::atomic<bool> stressRun{true};
     std::vector<std::thread> hogs;
+    hogs.reserve(static_cast<size_t>(std::max(stress, 0)));
     for (int i = 0; i < stress; ++i)
         hogs.emplace_back([&] { volatile double x = 1; while (stressRun) x = x * 1.000001 + 1e-9; });
 

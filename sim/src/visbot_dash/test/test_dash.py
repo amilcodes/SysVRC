@@ -1,6 +1,6 @@
 """Unit tests for the dashboard's own logic.
 
-Only the pure helpers are covered here — the ROS plumbing is exercised by the
+Only the pure helpers are covered here; the ROS plumbing is exercised by the
 end-to-end smoke tests. Written as unittest.TestCase so that both pytest and
 setuptools' own runner collect them; with no collectable tests, pytest exits 5
 ("no tests collected") and colcon reports the package as failed.

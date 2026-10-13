@@ -1,4 +1,4 @@
-// controller_node — runs the shared visbot::MotionController inside a
+// controller_node: runs the shared visbot::MotionController inside a
 // bounded-latency 120 Hz RT thread and bridges it to ROS 2 topics.
 //
 //   sensors  (executor thread)  --LatestValue-->  RT tick  --RealtimeBox-->  publisher thread
@@ -7,17 +7,17 @@
 // the identical controller code the V5 brain runs, and drops its outputs in
 // a mailbox for a non-RT thread to publish.
 #include <atomic>
-#include <cstdlib>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
-#include <cstdio>
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/twist.hpp"
@@ -150,7 +150,7 @@ public:
         const auto st = loop_->stats();
         RCLCPP_INFO(get_logger(), "RT loop up: %.0f Hz, %s prio %d, cpu %d, mlock=%s%s%s",
                     cfg_.rateHz, vc::RtLoop::policyName(st.effectivePolicy), st.effectivePriority,
-                    st.effectiveCpu, st.memoryLocked ? "yes" : "no", note.empty() ? "" : " — ", note.c_str());
+                    st.effectiveCpu, st.memoryLocked ? "yes" : "no", note.empty() ? "" : "; ", note.c_str());
     }
 
     ~ControllerNode() override {
@@ -418,10 +418,17 @@ private:
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<ControllerNode>();
-    rclcpp::executors::SingleThreadedExecutor exec;
-    exec.add_node(node);
-    exec.spin();
+    int rc = 0;
+    try {
+        auto node = std::make_shared<ControllerNode>();
+        rclcpp::executors::SingleThreadedExecutor exec;
+        exec.add_node(node);
+        exec.spin();
+    } catch (const std::exception& e) {
+        // bad robot.json or routine name: one clear line beats an abort
+        std::fprintf(stderr, "controller_node: %s\n", e.what());
+        rc = 1;
+    }
     rclcpp::shutdown();
-    return 0;
+    return rc;
 }

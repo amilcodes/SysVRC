@@ -1,11 +1,8 @@
-// visbot/geometry.hpp — units, angles, and 2D pose.
+// visbot/geometry.hpp: units, angles, 2D pose.
 //
-// Conventions match EZ-Template / the V5 code so gains port 1:1:
-//   * distances in inches, angles in degrees
-//   * heading is a compass heading: 0 deg = field-forward (+y), clockwise positive
-//   * x is field-right, y is field-forward
-// The ROS 2 side converts to REP-103 (metres, radians, CCW) at the node boundary
-// and nowhere else.
+// Same conventions as EZ-Template so nothing needs converting: inches,
+// degrees, x right, y forward, heading clockwise from +y. The ROS nodes
+// convert to REP-103 (metres, radians, CCW) at the edge and nowhere else.
 #pragma once
 
 #include <cmath>
@@ -20,10 +17,7 @@ constexpr double rad2deg(double r) { return r * 180.0 / kPi; }
 constexpr double in2m(double in) { return in / kInchPerMetre; }
 constexpr double m2in(double m) { return m * kInchPerMetre; }
 
-/// Wrap an angle in degrees to (-180, 180].
-/// The `<= 0` is deliberate: it puts exactly 180 (and -180) at +180 rather
-/// than -180, which is what the stated range says and what keeps a robot
-/// facing the far wall from reading as -180.
+/// Wrap degrees to (-180, 180]. `<= 0` so that 180 stays 180 instead of -180.
 inline double wrapDeg(double a) {
     a = std::fmod(a + 180.0, 360.0);
     if (a <= 0) a += 360.0;
@@ -38,7 +32,11 @@ inline double wrapRad(double a) {
 }
 
 template <typename T>
-constexpr T clamp(T v, T lo, T hi) { return v < lo ? lo : (v > hi ? hi : v); }
+constexpr T clamp(T v, T lo, T hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
 
 template <typename T>
 constexpr int sgn(T v) { return (T(0) < v) - (v < T(0)); }
@@ -48,9 +46,8 @@ inline double headingToYaw(double headingDeg) { return deg2rad(90.0 - headingDeg
 /// ROS yaw (rad, CCW from +x) -> compass heading (deg, CW from +y).
 inline double yawToHeading(double yawRad) { return wrapDeg(90.0 - rad2deg(yawRad)); }
 
-/// Fold a freshly-measured wrapped angle into a continuous series, given the
-/// previous continuous value. Lets a wrapped source (a Gazebo quaternion) and
-/// a continuous one (the V5 inertial) both drive continuous heading state.
+/// Fold a wrapped reading into a continuous heading. Gazebo gives us a
+/// wrapped yaw, the V5 IMU a continuous one; this makes them look the same.
 inline double unwrapInto(double continuousPrev, double measuredWrapped) {
     return continuousPrev + wrapDeg(measuredWrapped - continuousPrev);
 }
@@ -58,17 +55,15 @@ inline double unwrapInto(double continuousPrev, double measuredWrapped) {
 struct Pose {
     double x = 0.0;      // inches, field-right
     double y = 0.0;      // inches, field-forward
-    /// Compass heading in degrees, CONTINUOUS — it is not wrapped to ±180.
-    /// EZ-Template's drive_imu_get() behaves the same way (the V5 inertial
-    /// reports cumulative rotation), and every turn in EZ depends on it: a
-    /// turn from 170 to -170 is issued as a target of 190, and wrapping the
-    /// measurement would turn that 20 degree error into 370. Use
-    /// wrappedTheta() for display or when comparing against a bearing.
+    /// Compass heading in degrees, continuous (not wrapped), like
+    /// drive_imu_get() on the brain. EZ turns rely on this: 170 -> -170 is a
+    /// target of 190, and wrapping the measurement would make that a 370 deg
+    /// error. Use wrappedTheta() for display.
     double theta = 0.0;
 
     double distanceTo(const Pose& o) const { return std::hypot(o.x - x, o.y - y); }
 
-    /// Heading folded into (-180, 180] — for display and bearing comparisons.
+    /// Heading in (-180, 180], for display and bearings.
     double wrappedTheta() const { return wrapDeg(theta); }
 
     /// Compass heading from this pose to another point.
@@ -77,9 +72,8 @@ struct Pose {
     }
 };
 
-/// Re-express a pose from the routine's own frame (whatever odom_xyt_set
-/// declared) in field coordinates, given where that frame's start pose really
-/// sits on the field. Compass convention: headings clockwise from +y.
+/// Move a pose from the routine's own frame (wherever odom_xyt_set put the
+/// origin) onto the field, given where the routine really starts.
 inline Pose codeToField(const Pose& p, const Pose& codeStart, const Pose& fieldStart) {
     const double phi = deg2rad(fieldStart.theta - codeStart.theta);  // clockwise
     const double dx = p.x - codeStart.x, dy = p.y - codeStart.y;
@@ -88,8 +82,7 @@ inline Pose codeToField(const Pose& p, const Pose& codeStart, const Pose& fieldS
             p.theta + (fieldStart.theta - codeStart.theta)};
 }
 
-/// Left/right drive command in V5 "voltage units", -127..127, exactly what
-/// pros::Motor::move() takes on the brain.
+/// Left/right drive command in -127..127, same units as pros::Motor::move().
 struct WheelCmd {
     double left = 0.0;
     double right = 0.0;

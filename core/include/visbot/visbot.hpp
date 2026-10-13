@@ -1,4 +1,4 @@
-// Umbrella header.
+// Everything in core/ in one include.
 #pragma once
 #include "visbot/geometry.hpp"
 #include "visbot/constants.hpp"

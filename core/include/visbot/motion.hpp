@@ -1,24 +1,17 @@
-// visbot/motion.hpp — EZ-Template's autonomous motion engine, ported.
+// visbot/motion.hpp: EZ-Template's auton motion code (v3.2.2: pid_tasks.cpp,
+// exit_conditions.cpp, set_pid/*.cpp).
 //
-// EZ's model is two cooperating threads: a 10 ms PID task that drives the
-// motors from whatever motion is currently "set", and the auton thread that
-// sets motions and then blocks in pid_wait* calls. autons.cpp reads as a flat
-// sequence of those two kinds of call:
+// On the brain EZ is two threads: a 10 ms PID task that drives whatever motion
+// is set, and the auton thread that sets motions and blocks in pid_wait*. So
+// an auton is really a flat list:
 //
 //     chassis.pid_drive_set(36, 127);     -> Instr::driveSet(36, 127)
 //     chassis.pid_wait_until(12);         -> Instr::waitUntil(12)
 //     leftDoinker.toggle();               -> Instr::act("leftDoinker.toggle()")
-//     chassis.pid_speed_max_set(70);      -> Instr::speedMax(70)
 //     chassis.pid_wait();                 -> Instr::wait()
 //
-// So a Mission here is that same flat list, and MotionController is the PID
-// task plus a program counter: non-blocking instructions execute immediately,
-// blocking ones hold until their condition is met. A real routine can then be
-// transcribed nearly line for line — see missions::worldsMogoRush.
-//
-// Ported against EZ-Template v3.2.2 (pid_tasks.cpp, exit_conditions.cpp,
-// set_pid/*.cpp). Places where this is not bit-identical are marked
-// `Divergence:`.
+// MotionController is the PID task plus a program counter over that list.
+// Anything that isn't bit-identical to EZ is marked "Divergence".
 #pragma once
 
 #include <cstdint>
@@ -68,14 +61,13 @@ inline double newTurnTarget(double target, double current, AngleBehavior b) {
     return target;
 }
 
-/// ez::Drive::pid_speed_max_set: `max_speed = abs(clamp(speed, 127, -127))`.
-/// The sign of a speed is discarded, so pid_swing_set(..., -100) is identical
-/// to +100; direction only ever comes from the target.
+/// ez::Drive::pid_speed_max_set. EZ takes abs() of every speed, so a
+/// negative speed does nothing; direction always comes from the target.
 inline double ezSpeed(double speed) {
     return std::fabs(clamp(speed, -127.0, 127.0));
 }
 
-/// ez::util::absolute_angle_to_point — compass bearing from current to target.
+/// ez::util::absolute_angle_to_point: compass bearing from (cx, cy) to (tx, ty).
 inline double absoluteAngleToPoint(double tx, double ty, double cx, double cy) {
     return rad2deg(std::atan2(tx - cx, ty - cy));
 }
@@ -86,7 +78,6 @@ inline Pose vectorOffPoint(double added, const Pose& p) {
             std::cos(deg2rad(p.theta)) * added + p.y,
             p.theta};
 }
-
 
 struct Instr {
     enum class Op : uint8_t {
@@ -105,10 +96,7 @@ struct Instr {
     AngleBehavior behavior = AngleBehavior::Shortest;
     SwingSide side = SwingSide::Left;
     double timeoutMs = 0.0;  // backstop for headless runs, not an EZ feature
-    /// Mechanism call this instruction stands for (intake, clamp, a doinker…).
-    /// The sim does not model mechanisms, but *when* a routine fires them is
-    /// half of what makes it a routine, so they are recorded and reported.
-    std::string label;
+    std::string label;       // Action only: the mechanism call, e.g. "mogoClamp.toggle()"
     int sourceLine = 0;      // line in the original autons.cpp, when imported
 
     // --- motions ---
@@ -134,8 +122,7 @@ struct Instr {
     static Instr odomSet(double x, double y, double speed = 110, DriveDirection d = DriveDirection::Forward) {
         Instr i; i.op = Op::OdomSet; i.a = x; i.b = y; i.speed = speed; i.dir = d; return i;
     }
-    /// chassis.drive_set(left, right): EZ drops out of PID mode and applies
-    /// this voltage (V5 units) until the next motion is set.
+    /// chassis.drive_set(left, right): open loop until the next motion is set.
     static Instr driveRaw(double left, double right) {
         Instr i; i.op = Op::DriveRaw; i.a = left; i.b = right; return i;
     }
@@ -167,7 +154,7 @@ struct Instr {
     }
     static Instr act(std::string label) { Instr i; i.op = Op::Action; i.label = std::move(label); return i; }
 
-    /// EZ's own name for this call, as written in autons.cpp and .auton files.
+    /// The EZ function name, as it appears in autons.cpp and .auton files.
     const char* name() const {
         switch (op) {
             case Op::DriveSet:           return "pid_drive_set";
@@ -226,9 +213,7 @@ struct MotionStatus {
     double missionMs = 0.0;       // since the routine started; stops when it's done
     bool done = false;
     bool interfered = false;      // ez::interfered: exited on velocity/timeout
-    /// Most recent mechanism call. A fixed buffer rather than a pointer into
-    /// the mission, so the struct stays trivially copyable and can be handed
-    /// across threads through a SeqLock.
+    // fixed buffer, not a std::string, so this stays trivially copyable for the SeqLock
     char lastAction[48] = {0};
     int lastActionPc = -1;
     double lastActionAtMs = -1.0;
@@ -277,6 +262,16 @@ public:
     DriveMode mode() const { return mode_; }
     double elapsedMs() const { return totalMs_; }
 
+    /// Scale both sides down together when the faster one is over the cap,
+    /// like EZ, so saturating doesn't change the curvature.
+    static void vectorScale(double& l, double& r, double cap) {
+        const double faster = std::fmax(std::fabs(l), std::fabs(r));
+        if (faster > cap && faster > 0.0) {
+            l *= cap / faster;
+            r *= cap / faster;
+        }
+    }
+
     /// One control tick.
     WheelCmd tick(const SensorSnapshot& s, double dtSeconds) {
         odom_.update(s.enc, s.imuHeadingDeg);
@@ -305,16 +300,18 @@ public:
 
 private:
     // ===================== program =====================
+    const Instr& current() const { return mission_[static_cast<size_t>(pc_)]; }
+    bool pastEnd() const { return pc_ >= static_cast<int>(mission_.size()); }
+
     void advance() {
         ++pc_;
         status_.instrElapsedMs = 0.0;
         waitArmed_ = false;
-        if (pc_ >= static_cast<int>(mission_.size())) {
+        if (pastEnd()) {
             status_.pc = pc_;
-            // A routine that ends on a motion with no wait after it (very
-            // common: `set_drive(-30);` as the last line) doesn't stop the
-            // robot on the brain. The auton function returns, and EZ's PID
-            // task keeps driving that motion. Do the same: let it settle.
+            // Lots of routines end on a motion with no wait (`set_drive(-30);`
+            // as the last line). On the brain the PID task keeps driving it
+            // after the auton function returns, so let it finish here too.
             if (mode_ == DriveMode::Drive || mode_ == DriveMode::Turn || mode_ == DriveMode::Swing ||
                 mode_ == DriveMode::PointToPoint) {
                 draining_ = true;
@@ -329,17 +326,16 @@ private:
             return;
         }
         status_.pc = pc_;
-        status_.instr = mission_[pc_].name();
+        status_.instr = current().name();
     }
 
-    /// The auton thread races ahead through immediate calls until it hits a
-    /// pid_wait; that is exactly this loop.
+    /// Run immediate instructions until something blocks, like the auton
+    /// thread does until it hits a pid_wait.
     void runProgram() {
         if (mission_.empty() || pc_ < 0) return;  // no mission armed yet
         if (draining_) {
-            // Divergence: on the brain the motion would hold its target until
-            // the auton period ends. Headless runs need an end, so this stops
-            // once the motion settles, or after kDrainLimitMs if it never does.
+            // Divergence: on the brain it'd hold the target until the period
+            // ends. We stop when it settles, or after kDrainLimitMs.
             drainMs_ += dt_ * 1000.0;
             const ExitReason e = motionExit(0.0);
             if (e != ExitReason::Running || drainMs_ > kDrainLimitMs) {
@@ -351,10 +347,9 @@ private:
             }
             return;
         }
-        for (int guard = 0; guard < 256; ++guard) {
-            // advance() may have just run off the end into draining.
-            if (status_.done || draining_ || pc_ >= static_cast<int>(mission_.size())) return;
-            const Instr& in = mission_[pc_];
+        for (int guard = 0; guard < 256; ++guard) {  // guard: 256 immediate calls in one tick means a bug
+            if (status_.done || draining_ || pastEnd()) return;
+            const Instr& in = current();
             if (in.blocking()) {
                 status_.instrElapsedMs += dt_ * 1000.0;
                 if (!waitArmed_) { armWait(in); waitArmed_ = true; return; }
@@ -372,10 +367,10 @@ private:
             case Instr::Op::DriveSet:           setDrive(in); break;
             case Instr::Op::TurnSet:            setTurn(in); break;
             case Instr::Op::TurnRelative: {
-                // ez: absolute target = headingPID target + delta
+                // relative to the last heading *target*, not the current heading (same as EZ)
                 Instr abs = in;
                 abs.a = headingPid_.target() + in.a;
-                abs.behavior = AngleBehavior::Raw;  // the sum is already the target
+                abs.behavior = AngleBehavior::Raw;
                 setTurn(abs);
                 break;
             }
@@ -384,8 +379,7 @@ private:
             case Instr::Op::OdomSet:            setOdom(in); break;
             case Instr::Op::DriveRaw:
                 raw_ = {in.a, in.b};
-                mode_ = DriveMode::Raw;
-                status_.motionElapsedMs = 0.0;
+                startMotion(DriveMode::Raw);
                 break;
             case Instr::Op::SpeedMax:           maxSpeed_ = ezSpeed(in.speed); break;
             case Instr::Op::DriveChainConstant: chainConstant_ = std::fabs(in.a); break;
@@ -413,49 +407,44 @@ private:
     void armWait(const Instr& in) {
         resetExitLatches();
         if (in.op == Instr::Op::WaitUntil) {
-            // ez::pid_wait_until means different things per mode: a distance
-            // along the drive for drive/odom motions, an absolute heading for
-            // turns and swings (resolved the short way, as EZ does).
+            // a distance for drive/odom motions, an absolute heading for turns and swings
             if (mode_ == DriveMode::Turn || mode_ == DriveMode::Swing)
                 armPassHeading(newTurnTarget(in.a, odom_.pose().theta, AngleBehavior::Shortest));
             else
                 armPassDrive(in.a);
-        } else if (in.op == Instr::Op::WaitQuick) {
-            // ez::pid_wait_quick: wait until the robot passes the target the
-            // user asked for, without extending it first.
-            switch (mode_) {
-                case DriveMode::Drive:        armPassDrive(chainTargetStart_); break;
-                case DriveMode::Turn:
-                case DriveMode::Swing:        armPassHeading(chainTargetStart_); break;
-                case DriveMode::PointToPoint: waitKind_ = WaitKind::PassPoint;
-                                              waitPointSign_ = sgn(isPastTarget(odomTargetOriginal_));
-                                              break;
-                default:                      waitKind_ = WaitKind::ExitCond; break;
-            }
-        } else if (in.op == Instr::Op::WaitQuickChain) {
-            // ez::pid_wait_quick_chain extends the PID target by the chain
-            // constant and then calls pid_wait_quick, which waits only until
-            // the robot passes the ORIGINAL target. The loop is still pulling
-            // hard toward the extended target when the wait returns — that is
-            // what carries speed into the next motion. Waiting on the extended
-            // target's exit conditions instead just moves the stopping point.
-            applyChain();
-            switch (mode_) {
-                case DriveMode::Drive:        armPassDrive(chainTargetStart_); break;
-                case DriveMode::Turn:
-                case DriveMode::Swing:        armPassHeading(chainTargetStart_); break;
-                case DriveMode::PointToPoint: waitKind_ = WaitKind::PassPoint;
-                                              waitPointSign_ = sgn(isPastTarget(odomTargetOriginal_));
-                                              break;
-                default:                      waitKind_ = WaitKind::ExitCond; break;
-            }
+        } else if (in.op == Instr::Op::WaitQuick || in.op == Instr::Op::WaitQuickChain) {
+            // quick_chain pushes the target out by the chain constant first.
+            // Both then wait only until the robot passes the target it was
+            // given, so with the chain the PID is still pulling hard when the
+            // wait returns. That's where the carried speed comes from.
+            if (in.op == Instr::Op::WaitQuickChain) applyChain();
+            armPassOriginalTarget();
         } else {
             waitKind_ = WaitKind::ExitCond;
         }
     }
 
-    /// ez::Drive::wait_until_drive — remember the sign of the error to the
-    /// intermediate target so we can tell when we pass it.
+    void armPassOriginalTarget() {
+        switch (mode_) {
+            case DriveMode::Drive:
+                armPassDrive(chainTargetStart_);
+                break;
+            case DriveMode::Turn:
+            case DriveMode::Swing:
+                armPassHeading(chainTargetStart_);
+                break;
+            case DriveMode::PointToPoint:
+                waitKind_ = WaitKind::PassPoint;
+                waitPointSign_ = sgn(isPastTarget(odomTargetOriginal_));
+                break;
+            case DriveMode::Disabled:
+            case DriveMode::Raw:
+                waitKind_ = WaitKind::ExitCond;
+                break;
+        }
+    }
+
+    /// ez::Drive::wait_until_drive: remember which side of the target we're on.
     void armPassDrive(double relativeTarget) {
         waitKind_ = WaitKind::PassDrive;
         waitLTarget_ = lStart_ + relativeTarget;
@@ -464,7 +453,7 @@ private:
         waitRSign_ = sgn(waitRTarget_ - rightInches());
     }
 
-    /// ez::Drive::wait_until_turn_swing — same idea against the heading.
+    /// ez::Drive::wait_until_turn_swing, same thing for heading.
     void armPassHeading(double headingTarget) {
         waitKind_ = WaitKind::PassHeading;
         waitHeadingTarget_ = headingTarget;
@@ -490,7 +479,7 @@ private:
                 case WaitKind::ExitCond: break;
             }
             if (passed) { status_.lastExit = ExitReason::Passed; return true; }
-            // Failsafe: the motion ended before we ever got there.
+            // the motion gave up before reaching it
             const ExitReason e = motionExit(in.timeoutMs);
             if (e != ExitReason::Running) { noteExit(e); return true; }
             return false;
@@ -499,9 +488,7 @@ private:
         const ExitReason e = motionExit(in.timeoutMs);
         if (e == ExitReason::Running) return false;
         noteExit(e);
-        // The motion stays live: EZ's PID task keeps holding its target until
-        // the next motion is set, which is what carries momentum through a
-        // chained hand-off. tick() stops driving once the mission is done.
+        // motion stays live and keeps holding its target until the next one is set
         return true;
     }
 
@@ -510,14 +497,12 @@ private:
         if (e == ExitReason::Velocity || e == ExitReason::Timeout) status_.interfered = true;
     }
 
-    /// Evaluate the active motion's exit conditions once per tick.
+    /// Exit conditions for the active motion, once per tick.
     ///
-    /// Both halves of a two-PID motion must exit, and each half's result is
-    /// latched once it fires. EZ does the same
-    /// (`left_exit = left_exit != RUNNING ? left_exit : ...`) and it is not
-    /// optional: PID::exit_condition resets its own timers when it succeeds,
-    /// so re-polling a side that has already exited restarts its clock and
-    /// the two sides can starve each other indefinitely.
+    /// Both sides of a two-PID motion have to exit, and each side's result is
+    /// latched once it fires (EZ does the same). Don't remove the latch:
+    /// exitCondition() resets its timers on success, so polling an exited side
+    /// again restarts its clock and the two can starve each other forever.
     ExitReason motionExit(double timeoutMs) {
         auto poll = [&](ExitReason& latch, Pid& pid) {
             if (latch == ExitReason::Running) latch = pid.exitCondition(dt_, timeoutMs);
@@ -544,12 +529,18 @@ private:
                 return combine(exitA_, exitB_);
             case DriveMode::Disabled:
             case DriveMode::Raw:
-                return ExitReason::SmallError;  // no PID running, nothing to wait for
+                return ExitReason::SmallError;  // nothing to wait for
         }
         return ExitReason::Running;
     }
 
     void resetExitLatches() { exitA_ = exitB_ = ExitReason::Running; }
+
+    void startMotion(DriveMode m) {
+        mode_ = m;
+        resetExitLatches();
+        status_.motionElapsedMs = 0.0;
+    }
 
     // ===================== motion setup =====================
     double leftInches() const { return odom_.leftInches(sensors_.enc); }
@@ -566,9 +557,7 @@ private:
         headingOn_ = true;
         slewLeft_.initialize(in.slew, maxSpeed_, lStart_ + in.a, lStart_);
         slewRight_.initialize(in.slew, maxSpeed_, rStart_ + in.a, rStart_);
-        mode_ = DriveMode::Drive;
-        resetExitLatches();
-        status_.motionElapsedMs = 0.0;
+        startMotion(DriveMode::Drive);
     }
 
     void setTurn(const Instr& in) {
@@ -578,17 +567,14 @@ private:
         chainSensorStart_ = odom_.pose().theta;
         chainTargetStart_ = target;
         turnPid_.setTarget(target);
-        headingPid_.setTarget(target);  // the next drive holds this heading
+        headingPid_.setTarget(target);  // next drive holds this heading
         maxSpeed_ = ezSpeed(in.speed);
         slewTurn_.initialize(in.slew, maxSpeed_, target, chainSensorStart_);
-        mode_ = DriveMode::Turn;
-        resetExitLatches();
-        status_.motionElapsedMs = 0.0;
+        startMotion(DriveMode::Turn);
     }
 
-    /// ez: pid_turn_set(pose, dir, speed) -> TURN_TO_POINT. The target
-    /// heading is recomputed every tick from the current pose, so the robot
-    /// keeps facing the point even if it gets pushed.
+    /// pid_turn_set({x, y}, dir, speed). The heading target gets recomputed
+    /// every tick, so it keeps facing the point if it gets bumped.
     void setTurnToPoint(const Instr& in) {
         turnPid_.reset();
         turnPoint_ = {in.a, in.b, 0};
@@ -603,13 +589,10 @@ private:
         maxSpeed_ = ezSpeed(in.speed);
         slewTurn_.initialize(in.slew, maxSpeed_, target, chainSensorStart_);
         turnToPoint_ = true;
-        mode_ = DriveMode::Turn;
-        resetExitLatches();
-        status_.motionElapsedMs = 0.0;
+        startMotion(DriveMode::Turn);
     }
 
-    /// Divergence: EZ faces reverse points through find_point_to_face; this
-    /// adds 180 degrees to the bearing, which is the same heading.
+    /// Divergence: EZ goes through find_point_to_face for reverse; +180 gets the same heading.
     double turnToPointTarget() const {
         const Pose cur = odom_.pose();
         double bearing = absoluteAngleToPoint(turnPoint_.x, turnPoint_.y, cur.x, cur.y);
@@ -626,15 +609,13 @@ private:
         headingPid_.setTarget(target);
         swingSide_ = in.side;
         swingOppositeSpeed_ = in.b;
-        // The stationary side holds position through its drive PID.
+        // the other side holds still on its drive PID
         lStart_ = leftInches(); rStart_ = rightInches();
         leftPid_.setTarget(lStart_);
         rightPid_.setTarget(rStart_);
         maxSpeed_ = ezSpeed(in.speed);
         slewSwing_.initialize(in.slew, maxSpeed_, target, chainSensorStart_);
-        mode_ = DriveMode::Swing;
-        resetExitLatches();
-        status_.motionElapsedMs = 0.0;
+        startMotion(DriveMode::Swing);
     }
 
     void setOdom(const Instr& in) {
@@ -655,14 +636,11 @@ private:
         const double distToTarget = prevDistToTarget_ * dir;
         slewLeft_.initialize(in.slew, maxSpeed_, distToTarget + lStart_, lStart_);
         slewRight_.initialize(in.slew, maxSpeed_, distToTarget + rStart_, rStart_);
-        mode_ = DriveMode::PointToPoint;
-        resetExitLatches();
-        status_.motionElapsedMs = 0.0;
+        startMotion(DriveMode::PointToPoint);
     }
 
-    /// ez::Drive::pid_wait_quick_chain — push the target past where we're
-    /// going so the robot carries its momentum into the next motion instead
-    /// of settling on the spot.
+    /// ez::Drive::pid_wait_quick_chain: push the target past where we're
+    /// going so the robot doesn't slow down for it.
     void applyChain() {
         switch (mode_) {
             case DriveMode::Drive: {
@@ -692,26 +670,12 @@ private:
 
     // ===================== EZ PID tasks =====================
 
-public:
-    /// Scale both sides down together when the faster one exceeds the cap.
-    /// EZ does this rather than clamping each side independently, so the L/R
-    /// ratio — and therefore the path curvature — survives saturation.
-    static void vectorScale(double& l, double& r, double cap) {
-        const double faster = std::fmax(std::fabs(l), std::fabs(r));
-        if (faster > cap && faster > 0.0) {
-            l *= cap / faster;
-            r *= cap / faster;
-        }
-    }
-
-private:
     /// ez::Drive::drive_pid_task
     WheelCmd driveTask() {
         const double l = leftInches(), r = rightInches();
         leftPid_.compute(l, dt_);
         rightPid_.compute(r, dt_);
-        // EZ: headingPID.compute(drive_imu_get()) — no wrapping, because
-        // both the target and the measurement are continuous.
+        // no wrapping: target and heading are both continuous
         const double theta = odom_.pose().theta;
         headingPid_.compute(theta, dt_);
         slewLeft_.setMaxSpeed(maxSpeed_);
@@ -745,8 +709,7 @@ private:
         slewTurn_.iterate(theta);
 
         double out = clamp(turnPid_.output(), -slewTurn_.output(), slewTurn_.output());
-        // EZ caps the speed once inside start_i so the tail of a turn isn't
-        // driven by a large accumulated integral.
+        // turn_min: cap the speed inside start_i so a big integral can't overshoot the end
         if (gains_.turn.kI != 0.0 && gains_.turnMinSpeed != 0.0 &&
             std::fabs(turnPid_.target()) > gains_.turn.startI &&
             std::fabs(turnPid_.error()) < gains_.turn.startI) {
@@ -777,10 +740,8 @@ private:
         return {opp, -out};
     }
 
-    /// ez::Drive::find_point_to_face — two points `look_ahead` either side of
-    /// the target along the approach line. Steering at the far one keeps the
-    /// bearing stable as the robot closes in, instead of spinning when the
-    /// target is underfoot.
+    /// ez::Drive::find_point_to_face. Aim at a point look_ahead past the
+    /// target, so the bearing doesn't swing wildly as the robot gets close.
     void findPointToFace() {
         const Pose cur = odom_.pose();
         Pose target = odomTarget_;
@@ -796,9 +757,8 @@ private:
         pointToFace_ = cur.distanceTo(ptf1) > cur.distanceTo(ptf2) ? ptf1 : ptf2;
     }
 
-    /// ez::Drive::is_past_target — project the displacement from the target
-    /// into the frame of the approach bearing; the sign of the along-track
-    /// component says whether we've driven past it.
+    /// ez::Drive::is_past_target. Sign of the along-track distance to the
+    /// target: flips when we drive past it.
     double isPastTarget() const { return isPastTarget(odomTarget_); }
 
     double isPastTarget(const Pose& target) const {
@@ -825,25 +785,21 @@ private:
         const int dir = driveDir_ == DriveDirection::Reverse ? -1 : 1;
         const int flipped = sgn(tempTarget) != pastTarget_ ? -1 : 1;
 
-        // Divergence: EZ integrates a synthetic "current" from its own
-        // per-tick change in range (xy_delta_fake) and runs the xy PID
-        // against that. We rebuild the same quantity from the measured change
-        // in range to the target — equal to within odometry noise, but not
-        // bit-identical to EZ's internal bookkeeping.
+        // Divergence: EZ keeps a fake "current" (xy_delta_fake) for the xy
+        // PID. We rebuild it from the change in range to the target, which is
+        // the same thing up to odometry noise.
         const double dist = cur.distanceTo(odomTarget_);
         fakeCurrent_ += (prevDistToTarget_ - dist) * (dir * flipped);
         prevDistToTarget_ = dist;
         xyPid_.computeError(std::fabs(tempTarget) * dir * flipped, fakeCurrent_, dt_);
 
-        // The bearing comes back wrapped; reconcile it against the heading
-        // the motion started at so the error stays continuous (ez: ptp_task).
+        // bearing comes back wrapped; unwrap against the start heading
         const double aTargetRaw = absoluteAngleToPoint(pointToFace_.x, pointToFace_.y, cur.x, cur.y);
         const double aTarget = newTurnTarget(aTargetRaw, odomStart_.theta, AngleBehavior::Shortest);
         const double aErr = aTarget - cur.theta;
         aOdomPid_.computeError(aErr, cur.theta, dt_);
 
-        // Turn bias: give up forward speed in proportion to how far off the
-        // bearing is, so the robot turns onto the line before sprinting down it.
+        // turn bias: slow down while pointed the wrong way, so it turns onto the line first
         double xyOut = clamp(xyPid_.output(), -cap, cap);
         if (gains_.odomTurnBias > 0.0)
             xyOut *= 1.0 - ((1.0 - std::cos(deg2rad(aErr))) / gains_.odomTurnBias);
@@ -854,7 +810,7 @@ private:
         vectorScale(lOut, rOut, cap);
 
         status_.error = dist;
-        // EZ keeps the drive PIDs fed so pid_wait_until still works in odom mode.
+        // keep the drive PIDs updated so pid_wait_until works during odom motions
         leftPid_.compute(leftInches(), dt_);
         rightPid_.compute(rightInches(), dt_);
         return {lOut, rOut};
@@ -897,8 +853,7 @@ private:
 
     ExitReason exitA_ = ExitReason::Running, exitB_ = ExitReason::Running;
 
-    /// How the active blocking instruction decides it is finished: either the
-    /// motion's exit conditions, or passing a value while the motion runs on.
+    // how the current wait finishes: exit conditions, or passing a target
     enum class WaitKind : uint8_t { ExitCond, PassDrive, PassHeading, PassPoint };
     WaitKind waitKind_ = WaitKind::ExitCond;
     bool waitArmed_ = false;

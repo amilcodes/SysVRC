@@ -1,5 +1,5 @@
-// visbot_control/rt_loop.hpp — a fixed-rate control thread with bounded wake
-// latency, and the instrumentation to prove it.
+// visbot_control/rt_loop.hpp: a fixed-rate control thread with bounded wake
+// latency, plus the instrumentation to show it.
 //
 // What makes this different from `create_wall_timer`:
 //   * its own pthread, elevated to SCHED_FIFO and pinned to one CPU, so the
@@ -36,7 +36,7 @@
 namespace visbot_control {
 
 inline int64_t monotonicNs() {
-    timespec ts;
+    timespec ts{};
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return int64_t(ts.tv_sec) * 1'000'000'000LL + ts.tv_nsec;
 }
@@ -96,7 +96,11 @@ struct Histogram {
         }
         return double(N) * bucketNs;
     }
-    void clear() { *this = Histogram{}; }
+    void clear() {
+        const double width = bucketNs;  // a fresh Histogram would reset this to 10 us
+        *this = Histogram{};
+        bucketNs = width;
+    }
 };
 
 /// Snapshot handed to the non-RT side.
@@ -162,7 +166,7 @@ public:
     ~RtLoop() { stop(); }
 
     /// Start the loop. Returns a human-readable note if scheduling could not
-    /// be elevated (e.g. missing CAP_SYS_NICE) — the loop still runs.
+    /// be elevated (e.g. missing CAP_SYS_NICE). The loop runs either way.
     std::string start(Callback cb) {
         cb_ = std::move(cb);
         running_.store(true);
@@ -217,7 +221,7 @@ private:
             sp.sched_priority = cfg_.priority;
             const int rc = pthread_setschedparam(pthread_self(), cfg_.schedPolicy, &sp);
             if (rc != 0) note += "pthread_setschedparam(" + std::string(policyName(cfg_.schedPolicy)) +
-                                 ") failed (" + strerror(rc) + ") — run with CAP_SYS_NICE / rtprio ulimit; ";
+                                 ") failed (" + strerror(rc) + "), run with CAP_SYS_NICE / rtprio ulimit; ";
         }
         prctl(PR_SET_TIMERSLACK, 1);  // don't let the kernel coalesce our wakeups
         if (cfg_.cpu >= 0) {
@@ -304,7 +308,7 @@ private:
     std::atomic<bool> setupDone_{false};
     std::atomic<bool> resetRequested_{false};
     std::string setupNote_;
-    RtStats stats_{};             // RT-thread private
+    RtStats stats_;               // RT-thread private
     SeqLock<RtStats> statsLock_;  // published copy
 };
 

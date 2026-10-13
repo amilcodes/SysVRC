@@ -1,11 +1,5 @@
-// visbot/missions.hpp — a few built-in routines for testing the sim itself.
-//
-// Real autons don't live here. They're imported from v5/src/autons.cpp by
-// tools/ez_import.py into autons/*.auton and loaded with auton_file.hpp, so
-// the sim runs exactly what's in the competition code instead of a hand copy.
-//
-// Field frame: origin at field centre, +y toward the far wall, inches. A VRC
-// field is 12 ft square, so the legal area is +/-72 in.
+// visbot/missions.hpp: a few built-in routines for testing the sim itself.
+// Real autons come from autons/*.auton (see auton_file.hpp).
 #pragma once
 
 #include <string>
@@ -19,8 +13,7 @@ struct MissionDef {
     std::string name;
     Pose start;             // what the code believes (odom_xyt_set)
     Mission mission;
-    /// Where the robot really starts, in field coordinates (origin at field
-    /// centre, +y toward the far wall). Optional; needed to model walls.
+    /// Where the robot really starts on the field. Optional, but walls need it.
     bool hasFieldStart = false;
     Pose fieldStart;
 };
@@ -45,7 +38,7 @@ inline Mission skillsLoop() {
     };
 }
 
-/// Simple square. The clearest way to eyeball odometry drift.
+/// A square. Easiest way to eyeball odometry drift.
 inline Mission square(double side = 24.0) {
     return {
         Instr::driveSet(side, 100), Instr::wait(), Instr::turnSet(90, 90),  Instr::wait(),
@@ -55,7 +48,7 @@ inline Mission square(double side = 24.0) {
     };
 }
 
-/// Back-to-back chained motions: momentum carries between segments.
+/// Chained motions, so momentum carries from one into the next.
 inline Mission chainDemo() {
     return {
         Instr::driveChainConstant(6),
@@ -73,8 +66,16 @@ inline bool isBuiltin(const std::string& n) {
 
 inline MissionDef byName(const std::string& n) {
     MissionDef d;
-    d.name = n == "square" || n == "chain" ? n : "skills";
-    d.mission = n == "square" ? square() : n == "chain" ? chainDemo() : skillsLoop();
+    if (n == "square") {
+        d.name = n;
+        d.mission = square();
+    } else if (n == "chain") {
+        d.name = n;
+        d.mission = chainDemo();
+    } else {
+        d.name = "skills";  // anything unknown gets the skills loop
+        d.mission = skillsLoop();
+    }
     return d;
 }
 

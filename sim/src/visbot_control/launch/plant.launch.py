@@ -1,4 +1,4 @@
-"""Controller + kinematic plant backend — no Gazebo. Fast, deterministic, CI-friendly.
+"""Controller + kinematic plant backend, no Gazebo. Fast, deterministic, CI-friendly.
 
     ros2 launch visbot_control plant.launch.py mission:=state_solo_awp.blue robot:=robots/ours
 """

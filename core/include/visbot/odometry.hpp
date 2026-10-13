@@ -1,10 +1,7 @@
-// visbot/odometry.hpp — dead reckoning from the drive encoders + IMU heading,
-// the same scheme ez::Drive uses when no dedicated tracking wheels are fitted
-// (which is how this robot is configured — see globals.cpp).
-//
-// Heading comes from the IMU (it is far better than differential encoders);
-// translation comes from the mean of left/right wheel travel, integrated
-// along the arc the heading change implies rather than a straight line.
+// visbot/odometry.hpp: drive encoders + IMU dead reckoning, same as ez::Drive
+// without tracking wheels (which is how our robot is set up, see globals.cpp).
+// Heading from the IMU, distance from the average of both sides, integrated
+// along an arc.
 #pragma once
 
 #include <cmath>
@@ -46,14 +43,13 @@ public:
         const double dr = (enc.rightDeg - prevEnc_.rightDeg) * k;
         prevEnc_ = enc;
 
-        // The IMU may arrive wrapped (Gazebo quaternion) or continuous (V5
-        // get_rotation); fold it into a continuous series either way.
+        // Gazebo's yaw is wrapped, the V5's isn't. Handle both.
         imuContinuous_ = unwrapInto(imuContinuous_, wrapDeg(imuHeadingDeg));
         const double newHeading = imuContinuous_ + imuOffset_;
         const double dTheta = deg2rad(newHeading - pose_.theta);
         const double d = 0.5 * (dl + dr);
 
-        // Arc integration: chord length of an arc with distance d and turn dTheta.
+        // chord of the arc, not d, or fast turning drives drift outward
         double chord = d;
         if (std::fabs(dTheta) > 1e-6) chord = 2.0 * (d / dTheta) * std::sin(dTheta / 2.0);
 
@@ -69,7 +65,7 @@ public:
     void setPose(const Pose& p) { pose_ = p; }
     double distanceTravelled() const { return distanceTravelled_; }
 
-    /// Mean encoder travel in inches — what EZ's drive PID operates on.
+    /// Encoder travel in inches, which is what EZ's drive PID runs on.
     double leftInches(const EncoderReading& e) const { return e.leftDeg * params_.inchesPerWheelDegree(); }
     double rightInches(const EncoderReading& e) const { return e.rightDeg * params_.inchesPerWheelDegree(); }
 

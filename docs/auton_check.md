@@ -105,6 +105,14 @@ Keys: space plays, ←/→ step (shift for 1 s), Home/End. Put `#t=9.3` on the e
 
 `--robot robots/<name>/robot.json` (from the [robot studio](robot_studio.md)) does two things. The drivetrain becomes yours: wheel size, gearing, track width, size and response time, and odometry uses what your code declares, so a code/CAD mismatch shows up as drift. And the report runs the game elements. The field shows rings being picked up and goals being clamped and carried. Each mechanism call says what it did ("clamped", "missed, goal 6.3″ away", "+2 rings", "alliance stake") with how often across the varied runs, and the header shows points at the buzzer, how many runs score that much, and the auton win point checklist. It's recomputed when you drag the start or flip the alliance.
 
+## Example findings
+
+From the routines in `autons/`:
+
+* `stateSoloAwpCenterGet` finishes on time in 81% of runs. The last drive toward the ladder has no wait after it and is what's still running at the buzzer, mostly on low batteries (100% on time at full charge, 36% at 85%).
+* `safeFourRing` has a `pros::delay(20000)` at line 1232, so the code after it never runs in a match.
+* `positiveSideQuals` swings at speed `-100` (lines 1383, 1387). EZ drops the sign, so those were never backwards swings.
+
 ## Limits
 
 Worth knowing before you trust a number:

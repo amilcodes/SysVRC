@@ -33,8 +33,8 @@ TEST(works_in_reverse) {
 }
 
 TEST(ez_quirk_disabled_when_max_speed_below_min) {
-    // A motion slower than min_speed is not ramped at all — EZ would
-    // otherwise start it *faster* than its requested cap.
+    // A motion slower than min_speed isn't ramped at all. Otherwise EZ would
+    // start it *faster* than its requested cap.
     Slew s(3.0, 70.0);
     s.initialize(true, 50.0, 24.0, 0.0);
     EXPECT_TRUE(!s.enabled());

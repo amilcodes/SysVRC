@@ -1,8 +1,5 @@
-// visbot/cheesy_drive.hpp — the operator-control mixer from
-// v5/src/subsystemFiles/drive.cpp, ported verbatim into a stateful class.
-//
-// Inputs are normalised joystick values in [-1, 1]; outputs are wheel commands
-// in [-1, 1] (multiply by 127 for the brain, or by max wheel speed in sim).
+// visbot/cheesy_drive.hpp: the driver-control mixer from
+// subsystemFiles/drive.cpp, as a class. Joysticks and outputs in [-1, 1].
 #pragma once
 
 #include <cmath>
@@ -39,7 +36,8 @@ public:
 
         const double remappedTurn = turnRemapping(turn);
 
-        double left, right;
+        double left = 0.0;
+        double right = 0.0;
         if (turnInPlace) {
             // squared for finer control at small speeds
             left = remappedTurn * std::fabs(remappedTurn);
@@ -65,7 +63,7 @@ public:
     }
 
 private:
-    // sinusoidal remap applied twice for fine control near centre
+    // sine remap twice, so small stick movements turn gently
     double turnRemapping(double iturn) const {
         const double denominator = std::sin(kPi / 2 * p_.turnNonlinearity);
         const double first = std::sin(kPi / 2 * p_.turnNonlinearity * iturn) / denominator;

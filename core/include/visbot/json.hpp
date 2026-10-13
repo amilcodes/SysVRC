@@ -1,10 +1,9 @@
-// visbot/json.hpp — just enough JSON to read a robot.json.
-//
-// Header-only, no dependencies, like the rest of core/. Objects keep their key
-// order; numbers are doubles. Not fast and not meant to be: the files it reads
-// are a few kilobytes.
+// visbot/json.hpp: just enough JSON to read robot.json without a dependency.
+// Keeps key order, numbers are doubles. Not fast; it doesn't need to be.
 #pragma once
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <string>
 #include <utility>
@@ -14,7 +13,7 @@ namespace visbot {
 
 class Json {
 public:
-    enum class Type { Null, Bool, Number, String, Array, Object };
+    enum class Type : uint8_t { Null, Bool, Number, String, Array, Object };
 
     Type type() const { return type_; }
     bool isNull() const { return type_ == Type::Null; }
@@ -29,20 +28,17 @@ public:
     const std::vector<Json>& items() const { return items_; }
     const std::vector<std::pair<std::string, Json>>& members() const { return members_; }
 
-    /// Member lookup; a null value if this isn't an object or has no such key.
+    /// Missing key (or not an object) gives a null, so lookups can be chained.
     const Json& operator[](const std::string& key) const {
         for (const auto& [k, v] : members_)
             if (k == key) return v;
         return null();
     }
     bool has(const std::string& key) const {
-        for (const auto& kv : members_)
-            if (kv.first == key) return true;
-        return false;
+        return std::any_of(members_.begin(), members_.end(), [&](const auto& kv) { return kv.first == key; });
     }
 
-    /// Parse a document. On failure returns null and sets `error` (with the
-    /// byte offset), so a bad robot.json says where it's bad.
+    /// On failure returns null and puts the reason and byte offset in `error`.
     static Json parse(const std::string& text, std::string* error = nullptr) {
         Parser p{text, 0, {}};
         Json v = p.value();

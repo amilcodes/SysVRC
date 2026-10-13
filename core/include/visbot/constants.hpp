@@ -1,9 +1,8 @@
-// visbot/constants.hpp — the one place robot geometry and tuned gains live.
+// visbot/constants.hpp: robot geometry and tuned gains.
 //
-// Every number here is copied from the competition code: geometry from
-// v5/src/subsystemFiles/globals.cpp, gains and exit conditions from
-// default_constants() in v5/src/autons.cpp. The firmware does not include
-// this file yet, so a retune on the robot has to be copied here by hand.
+// Copied from the competition code: geometry from subsystemFiles/globals.cpp,
+// gains and exit conditions from default_constants() in autons.cpp. The
+// firmware doesn't include this file, so retunes have to be copied by hand.
 #pragma once
 
 #include "visbot/pid.hpp"
@@ -39,8 +38,8 @@ struct DriveGains {
     PidGains swing{6.0, 0.0, 65.0, 0.0};
     // pid_odom_angular_constants_set(6.5, 0.0, 52.5)
     PidGains odomAngular{6.5, 0.0, 52.5, 0.0};
-    // pid_odom_boomerang_constants_set(5.8, 0.0, 32.5) — boomerang motions are
-    // not implemented here; kept so the constant isn't silently lost.
+    // pid_odom_boomerang_constants_set(5.8, 0.0, 32.5). Boomerang isn't ported,
+    // this is here so the number doesn't get lost.
     PidGains boomerang{5.8, 0.0, 32.5, 0.0};
 
     // pid_turn_exit_condition_set(100_ms, 3_deg, 250_ms, 7_deg, 150_ms, 500_ms)
@@ -72,8 +71,7 @@ struct DriveGains {
     double odomTurnBias   = 0.9;
     double odomLookAheadIn = 7.0;
 
-    /// ez::Drive::turn_min — caps turn speed once inside start_i. EZ defaults
-    /// it to 0 (disabled) and the competition code never sets it.
+    /// ez::Drive::turn_min. 0 = off, which is EZ's default and ours.
     double turnMinSpeed = 0.0;
 };
 

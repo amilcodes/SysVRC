@@ -1,8 +1,8 @@
-// visbot/auton_file.hpp — read and write `.auton` files.
+// visbot/auton_file.hpp: read and write .auton files.
 //
 // An .auton file is an EZ-Template routine with the C++ taken out: one EZ call
-// per line, arguments already evaluated. tools/ez_import.py writes them
-// straight from autons.cpp, and they can be edited by hand.
+// per line, arguments already evaluated. tools/ez_import.py generates them
+// from autons.cpp; editing by hand is fine.
 //
 //     # worldsMogoRush(isBlue=true)
 //     odom_xyt_set(0, 0, -89)           @1976
@@ -11,10 +11,9 @@
 //     action("intake.move(-127)")       @1979
 //     pid_wait_until(6)                 @1984
 //
-// `@N` is the line in the original source, so a report can point back at the
-// exact line of the auton that misbehaved. Anything after `#` is a comment.
+// `@N` is the line in the original source. `#` starts a comment.
 //
-// Recognised calls (EZ names, EZ argument order):
+// Calls (EZ names, EZ argument order):
 //
 //     pid_drive_set(inches, speed[, slew])
 //     pid_turn_set(heading, speed[, shortest|longest|cw|ccw|raw])
@@ -31,8 +30,7 @@
 //     odom_xyt_set(x, y, heading)   first one before any motion = start pose
 //     action("anything")            a mechanism call, logged but not simulated
 //
-// Optional header: `# @field_start x y heading` gives the robot's real start
-// in field coordinates, which lets the sim model the perimeter walls.
+// `# @field_start x y heading` gives the real start on the field (enables walls).
 #pragma once
 
 #include <cctype>
@@ -117,6 +115,36 @@ inline std::string fmt(double v) {
     return o.str();
 }
 
+inline bool endsWith(const std::string& s, const std::string& tail) {
+    return s.size() >= tail.size() && s.compare(s.size() - tail.size(), tail.size(), tail) == 0;
+}
+
+/// "fwd" / "rev" (case-insensitive). False if it's neither.
+inline bool parseDirection(const std::string& arg, DriveDirection& d) {
+    const std::string k = lower(arg);
+    if (k == "fwd") d = DriveDirection::Forward;
+    else if (k == "rev") d = DriveDirection::Reverse;
+    else return false;
+    return true;
+}
+
+/// Everything except settings, delays and mechanism calls. The first one of
+/// these ends the "setup" part where odom_xyt_set means the start pose.
+inline bool movesRobot(Instr::Op op) {
+    switch (op) {
+        case Instr::Op::Action:
+        case Instr::Op::Delay:
+        case Instr::Op::TurnChainConstant:
+        case Instr::Op::SlewDriveConstants:
+        case Instr::Op::OdomLookAhead:
+        case Instr::Op::DriveChainConstant:
+        case Instr::Op::SpeedMax:
+            return false;
+        default:
+            return true;
+    }
+}
+
 }  // namespace auton_detail
 
 /// Parse the text of an .auton file.
@@ -131,7 +159,7 @@ inline AutonParseResult parseAuton(const std::string& text, const std::string& f
     int lineNo = 0;
     while (std::getline(in, raw)) {
         ++lineNo;
-        // `# @name foo` sets the routine name.
+        // header lines: `# @name foo`, `# @field_start x y h`
         {
             const std::string t = trim(raw);
             if (t.rfind("# @name", 0) == 0) { r.def.name = trim(t.substr(7)); continue; }
@@ -150,7 +178,7 @@ inline AutonParseResult parseAuton(const std::string& text, const std::string& f
             r.errors.push_back("line " + std::to_string(lineNo) + ": " + m + "  [" + line + "]");
         };
 
-        // Trailing `@N` source-line marker.
+        // trailing @N = source line (only outside quotes)
         int src = 0;
         const size_t at = line.rfind('@');
         if (at != std::string::npos && at > 0 && line.find('"', at) == std::string::npos) {
@@ -209,11 +237,7 @@ inline AutonParseResult parseAuton(const std::string& text, const std::string& f
         } else if (name == "pid_turn_to_point") {
             if (!need(3, 4) || !numArg(0) || !numArg(1) || !numArg(2)) continue;
             DriveDirection d = DriveDirection::Forward;
-            if (args.size() == 4) {
-                const std::string k = lower(args[3]);
-                if (k == "rev") d = DriveDirection::Reverse;
-                else if (k != "fwd") { err("direction must be fwd or rev"); continue; }
-            }
+            if (args.size() == 4 && !parseDirection(args[3], d)) { err("direction must be fwd or rev"); continue; }
             ins = Instr::turnToPoint(num[0], num[1], num[2], d);
         } else if (name == "pid_turn_relative_set") {
             if (!need(2, 2) || !numArg(0) || !numArg(1)) continue;
@@ -237,11 +261,7 @@ inline AutonParseResult parseAuton(const std::string& text, const std::string& f
         } else if (name == "pid_odom_set") {
             if (!need(3, 4) || !numArg(0) || !numArg(1) || !numArg(2)) continue;
             DriveDirection d = DriveDirection::Forward;
-            if (args.size() == 4) {
-                const std::string k = lower(args[3]);
-                if (k == "rev") d = DriveDirection::Reverse;
-                else if (k != "fwd") { err("direction must be fwd or rev"); continue; }
-            }
+            if (args.size() == 4 && !parseDirection(args[3], d)) { err("direction must be fwd or rev"); continue; }
             ins = Instr::odomSet(num[0], num[1], num[2], d);
         } else if (name == "drive_set") {
             if (!need(2, 2) || !numArg(0) || !numArg(1)) continue;
@@ -270,7 +290,7 @@ inline AutonParseResult parseAuton(const std::string& text, const std::string& f
         } else if (name == "odom_xyt_set") {
             if (!need(3, 3) || !numArg(0) || !numArg(1) || !numArg(2)) continue;
             if (!sawMotion) {
-                r.def.start = {num[0], num[1], num[2]};
+                r.def.start = {num[0], num[1], num[2]};  // before any motion it's the start pose, not a reset
                 emit = false;
             } else {
                 ins = Instr::odomReset(num[0], num[1], num[2]);
@@ -284,20 +304,15 @@ inline AutonParseResult parseAuton(const std::string& text, const std::string& f
         }
 
         if (!emit) continue;
-        const bool setting = ins.op == Instr::Op::Action || ins.op == Instr::Op::Delay ||
-                             ins.op == Instr::Op::TurnChainConstant || ins.op == Instr::Op::SlewDriveConstants ||
-                             ins.op == Instr::Op::OdomLookAhead || ins.op == Instr::Op::DriveChainConstant ||
-                             ins.op == Instr::Op::SpeedMax;
-        if (!setting) sawMotion = true;
+        if (movesRobot(ins.op)) sawMotion = true;
         ins.sourceLine = src;
         r.def.mission.push_back(std::move(ins));
     }
-    if (r.def.mission.empty() && r.errors.empty()) r.errors.push_back("no instructions");
+    if (r.def.mission.empty() && r.errors.empty()) r.errors.emplace_back("no instructions");
     return r;
 }
 
-/// Read and parse an .auton file. The routine is named after the file unless
-/// the file says otherwise with `# @name`.
+/// Read and parse an .auton file. Named after the file unless it has `# @name`.
 inline AutonParseResult loadAutonFile(const std::string& path) {
     std::ifstream f(path);
     if (!f) {
@@ -307,22 +322,21 @@ inline AutonParseResult loadAutonFile(const std::string& path) {
     }
     std::stringstream ss;
     ss << f.rdbuf();
-    std::string stem = path.substr(path.find_last_of("/\\") == std::string::npos ? 0 : path.find_last_of("/\\") + 1);
-    if (stem.size() > 6 && stem.compare(stem.size() - 6, 6, ".auton") == 0) stem.resize(stem.size() - 6);
+    const size_t slash = path.find_last_of("/\\");
+    std::string stem = slash == std::string::npos ? path : path.substr(slash + 1);
+    if (auton_detail::endsWith(stem, ".auton")) stem.resize(stem.size() - 6);
     return parseAuton(ss.str(), stem);
 }
 
-/// Find a routine by what a user would type: a built-in name (`skills`), a
-/// path (`autons/foo.auton`), or a bare name looked up in `autonsDir`
-/// (`worlds_mogo_rush.blue`).
+/// Look up a routine the way a user would name it: built-in (`skills`), a path
+/// (`autons/foo.auton`), or a bare name in autonsDir (`worlds_mogo_rush.blue`).
 inline AutonParseResult resolveMission(const std::string& nameOrPath, const std::string& autonsDir) {
     if (missions::isBuiltin(nameOrPath)) {
         AutonParseResult r;
         r.def = missions::byName(nameOrPath);
         return r;
     }
-    const bool looksLikePath = nameOrPath.find('/') != std::string::npos ||
-                               (nameOrPath.size() > 6 && nameOrPath.compare(nameOrPath.size() - 6, 6, ".auton") == 0);
+    const bool looksLikePath = nameOrPath.find('/') != std::string::npos || auton_detail::endsWith(nameOrPath, ".auton");
     if (looksLikePath) return loadAutonFile(nameOrPath);
     AutonParseResult r = loadAutonFile(autonsDir + "/" + nameOrPath + ".auton");
     if (!r.ok() && r.errors.size() == 1 && r.errors[0].rfind("can't open", 0) == 0)
@@ -330,8 +344,7 @@ inline AutonParseResult resolveMission(const std::string& nameOrPath, const std:
     return r;
 }
 
-/// Where the robot physically starts: the file's @field_start if it has one,
-/// otherwise the pose the code declares.
+/// Where the robot really starts: @field_start if given, else odom_xyt_set.
 inline Pose physicalStart(const MissionDef& def) { return def.hasFieldStart ? def.fieldStart : def.start; }
 
 /// One instruction as a line of .auton text, e.g. `pid_drive_set(36, 127)`.
@@ -368,14 +381,14 @@ inline std::string toAutonLine(const Instr& in) {
         case Instr::Op::OdomSet:
             o << fmt(in.a) << ", " << fmt(in.b) << ", " << fmt(in.speed)
               << (in.dir == DriveDirection::Reverse ? ", rev" : ""); break;
-        case Instr::Op::DriveRaw:           o << fmt(in.a) << ", " << fmt(in.b); break;
-        case Instr::Op::WaitUntil:          o << fmt(in.a); break;
-        case Instr::Op::Delay:              o << fmt(in.a); break;
-        case Instr::Op::SpeedMax:           o << fmt(in.speed); break;
+        case Instr::Op::DriveRaw:
+        case Instr::Op::SlewDriveConstants: o << fmt(in.a) << ", " << fmt(in.b); break;
+        case Instr::Op::WaitUntil:
+        case Instr::Op::Delay:
         case Instr::Op::DriveChainConstant:
         case Instr::Op::TurnChainConstant:
         case Instr::Op::OdomLookAhead:      o << fmt(in.a); break;
-        case Instr::Op::SlewDriveConstants: o << fmt(in.a) << ", " << fmt(in.b); break;
+        case Instr::Op::SpeedMax:           o << fmt(in.speed); break;
         case Instr::Op::OdomReset:          o << fmt(in.a) << ", " << fmt(in.b) << ", " << fmt(in.speed); break;
         case Instr::Op::Action: {
             o << '"';

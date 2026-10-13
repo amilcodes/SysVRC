@@ -1,34 +1,33 @@
-// auton_check — how repeatable is an auton?
+// auton_check: how repeatable is an auton?
 //
 //     auton_check autons/worlds_mogo_rush.blue.auton
 //     auton_check autons/skills.auton --budget 60 --runs 500 --html skills.html
 //
-// Runs the routine once with nothing disturbed (the "nominal" run), then N
-// more times with a random draw of everything that changes between real runs:
-// where the robot was placed, battery charge, left/right drivetrain mismatch,
-// wheel slip, gyro drift, motor response. For each run it records when the
-// routine finished and where the robot actually was when each mechanism call
-// fired. The report answers:
+// Runs the routine once with nothing disturbed (the nominal run), then N more
+// times with a random draw of what changes between real runs: placement,
+// battery, left/right mismatch, wheel slip, gyro drift, motor response. Each
+// run records when the routine finished and where the robot really was when
+// each mechanism call fired. From that:
 //
-//   * does it finish inside the auton period, and how often?
-//   * which mechanism calls land far from where they land in the nominal run?
+//   - does it finish inside the auton period, and how often
+//   - which mechanism calls land far from where they do in the nominal run
 //     (a clamp that fires 4 in from the goal misses the goal)
-//   * which disturbance is responsible? (placement vs battery vs slip ...)
+//   - which disturbance is to blame
 //
-// The disturbance sizes are assumptions, not measurements — they're flags so
-// a team can set them to match their robot, and the defaults are listed in
-// --help and in the report.
+// The disturbance sizes are guesses, not measurements. They're all flags so a
+// team can match their own robot; the defaults are in --help and the report.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
-#include <functional>
 #include <map>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "report_template.hpp"
@@ -53,7 +52,7 @@ struct Disturbances {
     Range slip{0.0, 0.03};        // fraction of wheel travel lost
     double driftSigma = 0.02;     // gyro drift, deg/s, 1-sigma
     Range tau{0.10, 0.14};        // motor time constant, s
-    double tauNominal = 0.12;     // the clean run's, and every run where tau isn't the factor
+    double tauNominal = 0.12;     // used by the clean run and whenever tau isn't the factor
 };
 
 struct Options {
@@ -154,7 +153,7 @@ Options parseArgs(int argc, char** argv) {
             const std::string kv = val();
             const size_t eq = kv.find('=');
             if (eq == std::string::npos) { std::fprintf(stderr, "--set wants KEY=VALUE\n"); usage(2); }
-            o.gainSets.push_back({kv.substr(0, eq), std::atof(kv.c_str() + eq + 1)});
+            o.gainSets.emplace_back(kv.substr(0, eq), std::atof(kv.c_str() + eq + 1));
         } else if (!a.empty() && a[0] == '-') {
             std::fprintf(stderr, "unknown option %s\n", a.c_str());
             usage(2);
@@ -226,31 +225,45 @@ struct Plan {
     int lastMotionWaitPc = -1;               // after this, only delays/actions remain
 };
 
+// The *_set motions. They keep running on the brain after the call returns,
+// until they settle or something replaces them.
+bool isMotionSet(Instr::Op op) {
+    return op == Instr::Op::DriveSet || op == Instr::Op::TurnSet || op == Instr::Op::SwingSet ||
+           op == Instr::Op::OdomSet || op == Instr::Op::TurnToPoint || op == Instr::Op::TurnRelative;
+}
+
+// The motion gave up (stopped moving, or ran out of time) instead of settling.
+bool gaveUp(ExitReason e) { return e == ExitReason::Velocity || e == ExitReason::Timeout; }
+
 Plan makePlan(const MissionDef& def) {
     Plan p;
     p.def = def;
-    for (int i = 0; i < static_cast<int>(def.mission.size()); ++i) {
-        const Instr& in = def.mission[i];
+    const int n = static_cast<int>(def.mission.size());
+    auto at = [&](int i) -> const Instr& { return def.mission[static_cast<size_t>(i)]; };
+    for (int i = 0; i < n; ++i) {
+        const Instr& in = at(i);
         if (in.op == Instr::Op::Action) p.actionPcs.push_back(i);
-        if (in.blocking() && in.op != Instr::Op::Delay) p.waitPcs.push_back(i);
-        if (in.blocking() && in.op != Instr::Op::Delay) p.lastMotionWaitPc = i;
-        if (in.op == Instr::Op::DriveRaw) p.lastMotionWaitPc = std::max(p.lastMotionWaitPc, i);
+        if (in.blocking() && in.op != Instr::Op::Delay) {
+            p.waitPcs.push_back(i);
+            p.lastMotionWaitPc = i;
+        }
+        if (in.op == Instr::Op::DriveRaw) p.lastMotionWaitPc = i;
     }
-    // A drive_set followed by a delay is a timed push: count that delay as motion.
-    for (int i = p.lastMotionWaitPc + 1; i < static_cast<int>(def.mission.size()); ++i)
-        if (def.mission[i].op == Instr::Op::DriveRaw) p.lastMotionWaitPc = i + 1;
-    // A motion set after the last wait (no wait of its own) still runs to the
-    // end on the brain, so the routine's motion ends when the controller does.
-    for (int i = p.lastMotionWaitPc + 1; i < static_cast<int>(def.mission.size()); ++i) {
-        const Instr::Op op = def.mission[static_cast<size_t>(i)].op;
-        if (op == Instr::Op::DriveSet || op == Instr::Op::TurnSet || op == Instr::Op::SwingSet ||
-            op == Instr::Op::OdomSet || op == Instr::Op::TurnToPoint || op == Instr::Op::TurnRelative)
-            p.lastMotionWaitPc = static_cast<int>(def.mission.size());  // i.e. when done
+    // drive_set then a delay is a timed push, so that delay counts as motion.
+    for (int i = p.lastMotionWaitPc + 1; i < n; ++i)
+        if (at(i).op == Instr::Op::DriveRaw) p.lastMotionWaitPc = i + 1;
+    // A motion with no wait after it still runs to the end on the brain, so
+    // the routine's motion ends when the controller does.
+    for (int i = p.lastMotionWaitPc + 1; i < n; ++i) {
+        if (isMotionSet(at(i).op)) {
+            p.lastMotionWaitPc = n;
+            break;
+        }
     }
     return p;
 }
 
-/// sampleTicks: record the true pose every N control ticks (0 = don't).
+// sampleTicks: record the true pose every N control ticks (0 = don't).
 Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double budget, int sampleTicks) {
     PlantParams pp = draw.plant;
     pp.walls = plan.def.hasFieldStart;
@@ -270,8 +283,7 @@ Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double
     if (!plan.def.mission.empty()) r.instrStart[0] = 0.0;
     r.actions.resize(plan.actionPcs.size());
     r.exits.assign(plan.waitPcs.size(), ExitReason::Running);
-    std::map<int, size_t> actionIndex, waitIndex;
-    for (size_t i = 0; i < plan.actionPcs.size(); ++i) actionIndex[plan.actionPcs[i]] = i;
+    std::map<int, size_t> waitIndex;
     for (size_t i = 0; i < plan.waitPcs.size(); ++i) waitIndex[plan.waitPcs[i]] = i;
 
     const double dt = 1.0 / 120.0;
@@ -288,11 +300,10 @@ Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double
         t += dt;
         const MotionStatus& st = ctrl.status();
 
-        // Every action fired this tick (several can fire back to back).
+        // The controller only counts actions, and several can fire in one
+        // tick. They fire in plan order, so the count is the index.
         while (seenActions < st.actionCount) {
-            // The controller only reports the latest; walk the plan in order.
-            const int apc = plan.actionPcs[static_cast<size_t>(seenActions)];
-            ActionHit& h = r.actions[actionIndex[apc]];
+            ActionHit& h = r.actions[static_cast<size_t>(seenActions)];
             h.fired = true;
             h.at = plant.truth();
             h.t = t;
@@ -304,9 +315,11 @@ Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double
                 auto it = waitIndex.find(k);
                 if (it != waitIndex.end()) r.exits[it->second] = st.lastExit;
             }
-            // Everything passed over this tick starts now (several can).
-            for (int k = std::max(pc + 1, 0); k <= st.pc && k < static_cast<int>(r.instrStart.size()); ++k)
-                if (r.instrStart[k] < 0) r.instrStart[k] = t;
+            // Everything we passed over this tick starts now.
+            for (int k = std::max(pc + 1, 0); k <= st.pc && k < static_cast<int>(r.instrStart.size()); ++k) {
+                double& start = r.instrStart[static_cast<size_t>(k)];
+                if (start < 0) start = t;
+            }
             pc = st.pc;
         }
         if (!motionDone && (st.pc > plan.lastMotionWaitPc || st.done)) {
@@ -332,10 +345,11 @@ struct Sampler {
 };
 
 enum Factor { kPlaceXy, kPlaceDeg, kBattery, kMismatch, kSlip, kDrift, kTau, kFactorCount };
-const char* kFactorNames[kFactorCount] = {"placement (x/y)", "placement (heading)", "battery", "L/R mismatch",
-                                          "wheel slip", "gyro drift", "motor response"};
+const char* const kFactorNames[kFactorCount] = {"placement (x/y)", "placement (heading)", "battery", "L/R mismatch",
+                                                "wheel slip", "gyro drift", "motor response"};
 
-Draw draw(Sampler& s, const Disturbances& d, int onlyFactor = -1) {
+// onlyFactor >= 0 varies just that one and leaves the rest nominal.
+Draw randomDraw(Sampler& s, const Disturbances& d, int onlyFactor = -1) {
     auto on = [&](int f) { return onlyFactor < 0 || onlyFactor == f; };
     Draw w;
     w.plant.seed = static_cast<uint32_t>(s.rng());
@@ -366,7 +380,7 @@ Draw nominalDraw(const Disturbances& d) {
     return w;
 }
 
-// ------------------------------------------------------------------ stats
+// ------------------------------------------------------------------ helpers
 double percentile(std::vector<double> v, double p) {
     if (v.empty()) return 0;
     std::sort(v.begin(), v.end());
@@ -397,211 +411,266 @@ std::string num(double v, int prec = 3) {
     return buf;
 }
 
-}  // namespace
+bool isSkills(const std::string& name) { return name.find("skills") != std::string::npos; }
 
-int main(int argc, char** argv) {
-    Options o = parseArgs(argc, argv);
+// Routine names end in .red / .blue when they're alliance specific.
+std::string allianceOf(const std::string& name) {
+    if (name.find(".red") != std::string::npos) return "red";
+    if (name.find(".blue") != std::string::npos) return "blue";
+    return "";
+}
 
-    // Load the routine.
-    MissionDef def;
-    if (missions::isBuiltin(o.auton)) {
-        def = missions::byName(o.auton);
-    } else {
-        const AutonParseResult r = loadAutonFile(o.auton);
-        if (!r.ok()) {
-            for (const auto& e : r.errors) std::fprintf(stderr, "%s: %s\n", o.auton.c_str(), e.c_str());
-            return 1;
-        }
-        def = r.def;
+std::string atLine(const Instr& in) {
+    return in.sourceLine ? " at line " + std::to_string(in.sourceLine) : std::string();
+}
+
+// How an instruction shows up in the terminal: `intake.move(127)  (line 1214)`
+std::string describe(const Instr& in) {
+    std::string s = in.op == Instr::Op::Action ? in.label : in.name();
+    if (in.sourceLine > 0) s += "  (line " + std::to_string(in.sourceLine) + ")";
+    return s;
+}
+
+const char* kindOf(const Instr& in) {
+    switch (in.op) {
+        case Instr::Op::Action: return "action";
+        case Instr::Op::Delay: return "delay";
+        case Instr::Op::Wait: case Instr::Op::WaitUntil: case Instr::Op::WaitQuick:
+        case Instr::Op::WaitQuickChain: return "wait";
+        case Instr::Op::DriveSet: case Instr::Op::TurnSet: case Instr::Op::TurnToPoint:
+        case Instr::Op::TurnRelative: case Instr::Op::SwingSet: case Instr::Op::OdomSet:
+        case Instr::Op::DriveRaw: return "motion";
+        default: return "set";
     }
-    if (o.budget < 0) o.budget = def.name.find("skills") != std::string::npos ? 60.0 : 15.0;
-    if (o.hasFieldStart) { def.hasFieldStart = true; def.fieldStart = o.fieldStart; }
-    // odom_xyt_set(0, 0, h) says nothing about where the robot is, but a
-    // nonzero start inside the field is the team writing field coordinates
-    // (the sim spawns there too). Any of the field's symmetric frames puts the
-    // walls in the same place, so that's enough to simulate wall pushes.
-    if (!def.hasFieldStart && (def.start.x != 0.0 || def.start.y != 0.0) &&
-        std::fabs(def.start.x) < 72.0 && std::fabs(def.start.y) < 72.0) {
+}
+
+// ------------------------------------------------------------------ setup
+std::optional<MissionDef> loadRoutine(const std::string& name) {
+    if (missions::isBuiltin(name)) return missions::byName(name);
+    const AutonParseResult r = loadAutonFile(name);
+    if (r.ok()) return r.def;
+    for (const auto& e : r.errors) std::fprintf(stderr, "%s: %s\n", name.c_str(), e.c_str());
+    return std::nullopt;
+}
+
+// odom_xyt_set(0, 0, h) says nothing about where the robot is, but a nonzero
+// start inside the field means the team wrote field coordinates (the sim
+// spawns there too). Any of the field's symmetric frames puts the walls in the
+// same place, so that's enough to simulate wall pushes.
+void inferFieldStart(MissionDef& def) {
+    if (def.hasFieldStart) return;
+    const Pose s = def.start;
+    if ((s.x != 0.0 || s.y != 0.0) && std::fabs(s.x) < 72.0 && std::fabs(s.y) < 72.0) {
         def.hasFieldStart = true;
-        def.fieldStart = def.start;
+        def.fieldStart = s;
     }
+}
 
-    // Timed pushes (drive_set) only mean something if there's a wall to push into.
-    std::vector<std::string> warnings;
-    if (!def.hasFieldStart) {
-        std::string lines;
-        for (const Instr& in : def.mission)
-            if (in.op == Instr::Op::DriveRaw)
-                lines += (lines.empty() ? "" : ", ") + (in.sourceLine ? std::to_string(in.sourceLine) : std::string("?"));
-        if (!lines.empty())
-            warnings.push_back("This routine pushes with drive_set (line " + lines + ") but the sim doesn't know where "
-                               "the walls are, so the push drives through open field. Everything after it is not "
-                               "meaningful. Pass --field-start X,Y,HEADING (or add # @field_start to the file).");
+// Timed pushes (drive_set) only mean something if there's a wall to push into.
+std::vector<std::string> pushWarnings(const MissionDef& def) {
+    if (def.hasFieldStart) return {};
+    std::string lines;
+    for (const Instr& in : def.mission) {
+        if (in.op != Instr::Op::DriveRaw) continue;
+        if (!lines.empty()) lines += ", ";
+        lines += in.sourceLine ? std::to_string(in.sourceLine) : "?";
     }
+    if (lines.empty()) return {};
+    return {"This routine pushes with drive_set (line " + lines + ") but the sim doesn't know where the walls "
+            "are, so the push drives through open field. Everything after it is not meaningful. Pass "
+            "--field-start X,Y,HEADING (or add # @field_start to the file)."};
+}
 
-    // The robot as built, if we have its robot.json.
+// Also narrows the motor response range to this robot's. False if robot.json is bad.
+bool loadRobot(Options& o, RobotSpec& robot) {
+    const RobotSpecResult rr = loadRobotSpec(o.robotPath);
+    if (!rr.ok()) {
+        for (const auto& e : rr.errors) std::fprintf(stderr, "%s: %s\n", o.robotPath.c_str(), e.c_str());
+        return false;
+    }
+    robot = rr.spec;
+    const double t = robot.motorTauSec;
+    o.d.tauNominal = t;
+    if (o.ideal) o.d.tau = {t, t};
+    else if (!o.tauGiven) o.d.tau = {t * 0.83, t * 1.17};  // same spread as the 0.10-0.14 default
+    return true;
+}
+
+// ------------------------------------------------------------------ results
+struct ActionStat {
+    int pc;
+    double p50, p95, max;    // distance from where the nominal run fired it
+    int fired;
+    double nomT;
+    Pose nom;
+};
+
+// One factor varied at a time, everything else nominal.
+struct Sens {
+    int factor;
+    double endP95;
+    double timeP95;
+    double onTimePct;
+};
+
+// Everything one check works out. The printers and the JSON writer only read it.
+struct Check {
+    Options opt;
+    Plan plan;
     RobotSpec robot;
-    const bool haveRobot = !o.robotPath.empty();
-    if (haveRobot) {
-        const RobotSpecResult rr = loadRobotSpec(o.robotPath);
-        if (!rr.ok()) {
-            for (const auto& e : rr.errors) std::fprintf(stderr, "%s: %s\n", o.robotPath.c_str(), e.c_str());
-            return 2;
-        }
-        robot = rr.spec;
-        const double t = robot.motorTauSec;
-        o.d.tauNominal = t;
-        if (o.ideal) o.d.tau = {t, t};
-        else if (!o.tauGiven) o.d.tau = {t * 0.83, t * 1.17};
-    }
-
+    bool haveRobot = false;
     DriveGains gains;
-    for (const auto& [k, v] : o.gainSets) {
-        if (!applyGain(gains, k, v)) { std::fprintf(stderr, "unknown gain '%s'\n", k.c_str()); return 2; }
-    }
+    std::vector<std::string> warnings;
 
-    Plan plan = makePlan(def);
-    if (haveRobot) {
-        plan.physical = robot.physical;
-        plan.declared = robot.declared;
-        plan.encoderScale = robot.encoderScale;
-    }
-
-    // Nominal run: nothing disturbed. Everything else is measured against it.
-    const Run nominal = simulate(plan, gains, nominalDraw(o.d), o.budget, kNominalSampleTicks);
-
-    // Disturbed runs.
-    Sampler sampler(o.seed);
+    Run nominal;
     std::vector<Run> runs;
-    runs.reserve(static_cast<size_t>(o.runs));
-    for (int i = 0; i < o.runs; ++i)
-        runs.push_back(simulate(plan, gains, draw(sampler, o.d), o.budget, i < kGhostRuns ? kGhostSampleTicks : 0));
-
-    // Timing.
-    std::vector<double> motionEnd, endErr, endHeadErr;
+    std::vector<double> motionEnd, endErr, endHeadErr;   // per run
     int onTime = 0, interfered = 0, unfinished = 0;
-    for (const Run& r : runs) {
-        motionEnd.push_back(r.motionEnd);
-        endErr.push_back(dist(r.end, nominal.end));
-        endHeadErr.push_back(std::fabs(r.end.theta - nominal.end.theta));
-        if (r.motionEnd <= o.budget) ++onTime;
-        if (!r.finished) ++unfinished;
-        for (ExitReason e : r.exits)
-            if (e == ExitReason::Velocity || e == ExitReason::Timeout) { ++interfered; break; }
+    std::vector<ActionStat> actionStats;
+    std::vector<int> stalls;                             // per wait: runs where it gave up
+    std::vector<Sens> byEnd, byTime;                     // empty with --no-sensitivity
+    int overPc = -1, overN = 0;                          // what was usually running at the buzzer
+    std::string overWhere;
+
+    const MissionDef& def() const { return plan.def; }
+    double onTimePct() const { return 100.0 * onTime / static_cast<double>(runs.size()); }
+};
+
+// Two questions, because they have different answers: what moves the robot
+// (end point), and what makes it late (finish time). A flat battery can barely
+// move the end point and still be why a routine misses the buzzer.
+std::vector<Sens> sensitivity(const Check& c) {
+    const Options& o = c.opt;
+    std::vector<Sens> sens;
+    const int per = std::max(30, o.runs / 4);
+    for (int f = 0; f < kFactorCount; ++f) {
+        Sampler s(o.seed * 7919 + static_cast<uint64_t>(f));
+        std::vector<double> e, tt;
+        int ok = 0;
+        for (int i = 0; i < per; ++i) {
+            Draw w = randomDraw(s, o.d, f);
+            w.plant.imuNoiseStdDeg = 0.0;  // otherwise gyro noise shows up in every factor
+            const Run r = simulate(c.plan, c.gains, w, o.budget, 0);
+            e.push_back(dist(r.end, c.nominal.end));
+            tt.push_back(r.motionEnd);
+            if (r.motionEnd <= o.budget) ++ok;
+        }
+        sens.push_back({f, percentile(e, 0.95), percentile(tt, 0.95), 100.0 * ok / per});
+    }
+    return sens;
+}
+
+void simulateAll(Check& c) {
+    const Options& o = c.opt;
+    // Nothing disturbed. Everything else is measured against this run.
+    c.nominal = simulate(c.plan, c.gains, nominalDraw(o.d), o.budget, kNominalSampleTicks);
+
+    Sampler sampler(o.seed);
+    c.runs.reserve(static_cast<size_t>(o.runs));
+    for (int i = 0; i < o.runs; ++i)
+        c.runs.push_back(simulate(c.plan, c.gains, randomDraw(sampler, o.d), o.budget,
+                                  i < kGhostRuns ? kGhostSampleTicks : 0));
+
+    if (o.sensitivity) {
+        c.byEnd = c.byTime = sensitivity(c);
+        std::sort(c.byEnd.begin(), c.byEnd.end(), [](auto& a, auto& b) { return a.endP95 > b.endP95; });
+        std::sort(c.byTime.begin(), c.byTime.end(), [](auto& a, auto& b) { return a.timeP95 > b.timeP95; });
+    }
+}
+
+// For runs that went over: what was running when the clock hit the limit?
+void findLateInstr(Check& c) {
+    const MissionDef& def = c.def();
+    std::map<int, int> overAt;
+    for (const Run& r : c.runs)
+        if (r.motionEnd > c.opt.budget && r.pcAtBudget >= 0) ++overAt[r.pcAtBudget];
+    for (const auto& [pc, n] : overAt) {
+        if (n > c.overN) { c.overPc = pc; c.overN = n; }
     }
 
-    // Per action: how far from where the nominal run fired it.
-    struct ActionStat { int pc; double p50, p95, max; int fired; double nomT; Pose nom; };
-    std::vector<ActionStat> actionStats;
-    for (size_t a = 0; a < plan.actionPcs.size(); ++a) {
+    if (c.overPc >= static_cast<int>(def.mission.size())) {
+        // Past the last instruction: still finishing a motion nothing waits for.
+        for (auto it = def.mission.rbegin(); it != def.mission.rend(); ++it) {
+            if (!isMotionSet(it->op)) continue;
+            c.overWhere = std::string("the last motion, ") + it->name() + atLine(*it) + " (nothing waits for it)";
+            break;
+        }
+    } else if (c.overPc >= 0) {
+        const Instr& in = def.mission[static_cast<size_t>(c.overPc)];
+        c.overWhere = in.op == Instr::Op::Action ? in.label : in.name();
+        if (in.op == Instr::Op::Delay) c.overWhere += " " + std::to_string(static_cast<int>(in.a)) + " ms";
+        c.overWhere += atLine(in);
+    }
+}
+
+void summarize(Check& c) {
+    const Run& nominal = c.nominal;
+    for (const Run& r : c.runs) {
+        c.motionEnd.push_back(r.motionEnd);
+        c.endErr.push_back(dist(r.end, nominal.end));
+        c.endHeadErr.push_back(std::fabs(r.end.theta - nominal.end.theta));
+        if (r.motionEnd <= c.opt.budget) ++c.onTime;
+        if (!r.finished) ++c.unfinished;
+        if (std::any_of(r.exits.begin(), r.exits.end(), gaveUp)) ++c.interfered;
+    }
+
+    const std::vector<int>& actionPcs = c.plan.actionPcs;
+    for (size_t a = 0; a < actionPcs.size(); ++a) {
         std::vector<double> d;
         int fired = 0;
-        for (const Run& r : runs) {
+        for (const Run& r : c.runs) {
             if (!r.actions[a].fired || !nominal.actions[a].fired) continue;
             ++fired;
             d.push_back(dist(r.actions[a].at, nominal.actions[a].at));
         }
-        actionStats.push_back({plan.actionPcs[a], percentile(d, 0.5), percentile(d, 0.95),
-                               d.empty() ? 0 : *std::max_element(d.begin(), d.end()), fired,
-                               nominal.actions[a].t, nominal.actions[a].at});
+        const double worst = d.empty() ? 0 : *std::max_element(d.begin(), d.end());
+        c.actionStats.push_back({actionPcs[a], percentile(d, 0.5), percentile(d, 0.95), worst, fired,
+                                 nominal.actions[a].t, nominal.actions[a].at});
     }
 
-    // Per blocking instruction: how often it ended on a velocity/timeout exit.
-    std::vector<std::pair<int, int>> fragileWaits;  // (pc, count)
-    for (size_t w = 0; w < plan.waitPcs.size(); ++w) {
-        int bad = 0;
-        for (const Run& r : runs)
-            if (r.exits[w] == ExitReason::Velocity || r.exits[w] == ExitReason::Timeout) ++bad;
-        if (bad) fragileWaits.push_back({plan.waitPcs[w], bad});
-    }
+    c.stalls.assign(c.plan.waitPcs.size(), 0);
+    for (size_t w = 0; w < c.stalls.size(); ++w)
+        for (const Run& r : c.runs)
+            if (gaveUp(r.exits[w])) ++c.stalls[w];
 
-    // Sensitivity: one factor at a time, everything else nominal. Two
-    // questions, because they have different answers: what moves the robot
-    // (end point), and what makes it late (finish time). A flat battery can
-    // barely move the end point and still be why a routine misses the buzzer.
-    struct Sens { int factor; double endP95; double timeP95; double onTimePct; };
-    std::vector<Sens> sens;
-    if (o.sensitivity) {
-        const int per = std::max(30, o.runs / 4);
-        for (int f = 0; f < kFactorCount; ++f) {
-            Sampler s(o.seed * 7919 + static_cast<uint64_t>(f));
-            std::vector<double> e, tt;
-            int ok = 0;
-            for (int i = 0; i < per; ++i) {
-                Draw w = draw(s, o.d, f);
-                w.plant.imuNoiseStdDeg = 0.0;  // isolate the factor
-                const Run r = simulate(plan, gains, w, o.budget, 0);
-                e.push_back(dist(r.end, nominal.end));
-                tt.push_back(r.motionEnd);
-                if (r.motionEnd <= o.budget) ++ok;
-            }
-            sens.push_back({f, percentile(e, 0.95), percentile(tt, 0.95), 100.0 * ok / per});
-        }
-    }
-    auto byEnd = sens, byTime = sens;
-    std::sort(byEnd.begin(), byEnd.end(), [](auto& a, auto& b) { return a.endP95 > b.endP95; });
-    std::sort(byTime.begin(), byTime.end(), [](auto& a, auto& b) { return a.timeP95 > b.timeP95; });
+    findLateInstr(c);
+}
 
-    // ------------------------------------------------------------ terminal
-    const Instr* ins = nullptr;
-    auto where = [&](int pc) {
-        ins = &def.mission[static_cast<size_t>(pc)];
-        std::string s = ins->op == Instr::Op::Action ? ins->label : ins->name();
-        if (ins->sourceLine > 0) s += "  (line " + std::to_string(ins->sourceLine) + ")";
-        return s;
-    };
-    const double pct = 100.0 * onTime / static_cast<double>(runs.size());
+// ------------------------------------------------------------------ terminal
+// One line per routine, for running over a whole folder.
+void printBrief(const Check& c) {
+    const ActionStat* worst = nullptr;
+    for (const auto& a : c.actionStats)
+        if (!worst || a.p95 > worst->p95) worst = &a;
+    std::string worstS = "-";
+    if (worst) {
+        char buf[96];
+        std::snprintf(buf, sizeof buf, "%.1f in @%d", worst->p95,
+                      c.def().mission[static_cast<size_t>(worst->pc)].sourceLine);
+        worstS = buf;
+    }
+    std::string note;
+    if (!c.warnings.empty()) note = "needs --field-start";
+    else if (!c.overWhere.empty()) note = "over at " + c.overWhere;
 
-    // For runs that went over: what was running when the clock hit the limit?
-    std::map<int, int> overAt;
-    for (const Run& r : runs)
-        if (r.motionEnd > o.budget && r.pcAtBudget >= 0) ++overAt[r.pcAtBudget];
-    int overPc = -1, overN = 0;
-    for (auto& [pc, n] : overAt) if (n > overN) { overPc = pc; overN = n; }
-    std::string overWhere;
-    if (overPc >= static_cast<int>(def.mission.size())) {
-        // Past the last instruction: still finishing a motion with no wait after it.
-        for (int i = static_cast<int>(def.mission.size()) - 1; i >= 0; --i) {
-            const Instr& in = def.mission[static_cast<size_t>(i)];
-            if (in.op == Instr::Op::DriveSet || in.op == Instr::Op::TurnSet || in.op == Instr::Op::SwingSet ||
-                in.op == Instr::Op::OdomSet || in.op == Instr::Op::TurnToPoint || in.op == Instr::Op::TurnRelative) {
-                overWhere = std::string("the last motion, ") + in.name() +
-                            (in.sourceLine ? " at line " + std::to_string(in.sourceLine) : std::string()) +
-                            " (nothing waits for it)";
-                break;
-            }
-        }
-    } else if (overPc >= 0) {
-        const Instr& in = def.mission[static_cast<size_t>(overPc)];
-        char buf[160];
-        std::snprintf(buf, sizeof buf, "%s%s%s", in.op == Instr::Op::Action ? in.label.c_str() : in.name(),
-                      in.op == Instr::Op::Delay ? (" " + std::to_string(static_cast<int>(in.a)) + " ms").c_str() : "",
-                      in.sourceLine ? (" at line " + std::to_string(in.sourceLine)).c_str() : "");
-        overWhere = buf;
-    }
-    if (o.brief) {
-        const ActionStat* worstA = nullptr;
-        for (const auto& a : actionStats) if (!worstA || a.p95 > worstA->p95) worstA = &a;
-        std::string worstS = "-";
-        if (worstA) {
-            const Instr& in = def.mission[static_cast<size_t>(worstA->pc)];
-            char buf[96];
-            std::snprintf(buf, sizeof buf, "%.1f in @%d", worstA->p95, in.sourceLine);
-            worstS = buf;
-        }
-        std::printf("%-30s %6.2f s %6.2f s %6.1f%% %7.1f in  %-16s %-20s %s\n", def.name.c_str(), nominal.motionEnd,
-                    percentile(motionEnd, 0.95), pct, percentile(endErr, 0.95), worstS.c_str(),
-                    byEnd.empty() ? "-" : kFactorNames[byEnd.front().factor],
-                    !warnings.empty() ? "needs --field-start" : overWhere.empty() ? "" : ("over at " + overWhere).c_str());
-        return 0;
-    }
+    std::printf("%-30s %6.2f s %6.2f s %6.1f%% %7.1f in  %-16s %-20s %s\n", c.def().name.c_str(),
+                c.nominal.motionEnd, percentile(c.motionEnd, 0.95), c.onTimePct(), percentile(c.endErr, 0.95),
+                worstS.c_str(), c.byEnd.empty() ? "-" : kFactorNames[c.byEnd.front().factor], note.c_str());
+}
+
+void printReport(const Check& c) {
+    const Options& o = c.opt;
+    const MissionDef& def = c.def();
+    const Plan& plan = c.plan;
+    const Run& nominal = c.nominal;
+
     std::printf("%s: %zu instructions, %zu mechanism calls, %d runs\n", def.name.c_str(), def.mission.size(),
                 plan.actionPcs.size(), o.runs);
-    if (haveRobot) {
+    if (c.haveRobot) {
         const RobotParams& rp = plan.physical;
         std::printf("robot   %s: %.2f in wheels @ %.0f rpm (%.0f in/s), track %.1f in, %.1fx%.1f in, response %.2f s\n",
-                    robot.name.c_str(), rp.wheelDiameterIn, rp.wheelRpm, rp.maxWheelSpeedInPerSec(), rp.trackWidthIn,
-                    rp.robotWidthIn, rp.robotLengthIn, robot.motorTauSec);
+                    c.robot.name.c_str(), rp.wheelDiameterIn, rp.wheelRpm, rp.maxWheelSpeedInPerSec(),
+                    rp.trackWidthIn, rp.robotWidthIn, rp.robotLengthIn, c.robot.motorTauSec);
         if (std::fabs(plan.encoderScale - 1.0) > 0.005)
             std::printf("        the code tells EZ %.2f in @ %.0f rpm, so odometry reads %.1f%% %s than the robot moves\n",
                         plan.declared.wheelDiameterIn, plan.declared.wheelRpm, std::fabs(plan.encoderScale - 1.0) * 100,
@@ -609,102 +678,105 @@ int main(int argc, char** argv) {
     }
     std::printf("\n");
     std::printf("time    nominal %.2f s   p50 %.2f s   p95 %.2f s   worst %.2f s   (limit %.0f s)\n",
-                nominal.motionEnd, percentile(motionEnd, 0.5), percentile(motionEnd, 0.95),
-                *std::max_element(motionEnd.begin(), motionEnd.end()), o.budget);
-    std::printf("        finishes in time in %.1f%% of runs\n", pct);
-    if (!overWhere.empty())
-        std::printf("        when time ran out it was usually on: %s (%d runs)\n", overWhere.c_str(), overN);
+                nominal.motionEnd, percentile(c.motionEnd, 0.5), percentile(c.motionEnd, 0.95),
+                *std::max_element(c.motionEnd.begin(), c.motionEnd.end()), o.budget);
+    std::printf("        finishes in time in %.1f%% of runs\n", c.onTimePct());
+    if (!c.overWhere.empty())
+        std::printf("        when time ran out it was usually on: %s (%d runs)\n", c.overWhere.c_str(), c.overN);
     if (nominal.total - nominal.motionEnd > 0.5)
         std::printf("        (then %.1f s of trailing delay the field clock will cut off)\n",
                     nominal.total - nominal.motionEnd);
-    std::printf("end     p50 %.2f in   p95 %.2f in from nominal,  heading p95 %.1f deg\n", percentile(endErr, 0.5),
-                percentile(endErr, 0.95), percentile(endHeadErr, 0.95));
-    if (interfered) std::printf("        %d runs had a motion end on a velocity/timeout exit\n", interfered);
-    if (unfinished) std::printf("        %d runs never finished\n", unfinished);
+    std::printf("end     p50 %.2f in   p95 %.2f in from nominal,  heading p95 %.1f deg\n", percentile(c.endErr, 0.5),
+                percentile(c.endErr, 0.95), percentile(c.endHeadErr, 0.95));
+    if (c.interfered) std::printf("        %d runs had a motion end on a velocity/timeout exit\n", c.interfered);
+    if (c.unfinished) std::printf("        %d runs never finished\n", c.unfinished);
 
-    if (!actionStats.empty()) {
-        auto sorted = actionStats;
+    if (!c.actionStats.empty()) {
+        auto sorted = c.actionStats;
         std::sort(sorted.begin(), sorted.end(), [](auto& a, auto& b) { return a.p95 > b.p95; });
         std::printf("\nleast repeatable mechanism calls (distance from the nominal run when it fired):\n");
-        for (size_t i = 0; i < std::min<size_t>(5, sorted.size()); ++i)
-            std::printf("  p95 %5.2f in   at %5.2f s   %s\n", sorted[i].p95, sorted[i].nomT, where(sorted[i].pc).c_str());
+        for (size_t i = 0; i < std::min<size_t>(5, sorted.size()); ++i) {
+            const Instr& in = def.mission[static_cast<size_t>(sorted[i].pc)];
+            std::printf("  p95 %5.2f in   at %5.2f s   %s\n", sorted[i].p95, sorted[i].nomT, describe(in).c_str());
+        }
     }
-    if (!sens.empty()) {
+    if (!c.byEnd.empty()) {
         std::printf("\nwhat moves the end point most (p95, one factor at a time):\n");
-        for (const auto& x : byEnd) std::printf("  %-20s %5.2f in\n", kFactorNames[x.factor], x.endP95);
+        for (const auto& x : c.byEnd) std::printf("  %-20s %5.2f in\n", kFactorNames[x.factor], x.endP95);
         std::printf("\nwhat makes it late (p95 finish time, one factor at a time; nominal %.2f s):\n",
                     nominal.motionEnd);
-        for (const auto& x : byTime)
+        for (const auto& x : c.byTime)
             std::printf("  %-20s %+5.2f s   in time %5.1f%%\n", kFactorNames[x.factor],
                         x.timeP95 - nominal.motionEnd, x.onTimePct);
     }
-    if (!fragileWaits.empty()) {
+    if (std::any_of(c.stalls.begin(), c.stalls.end(), [](int n) { return n > 0; })) {
         std::printf("\nmotions that sometimes exit on velocity/timeout instead of reaching target:\n");
-        for (auto& [pc, n] : fragileWaits)
-            std::printf("  %4.1f%%  %s\n", 100.0 * n / runs.size(), where(pc).c_str());
+        for (size_t w = 0; w < c.stalls.size(); ++w) {
+            if (!c.stalls[w]) continue;
+            const Instr& in = def.mission[static_cast<size_t>(plan.waitPcs[w])];
+            std::printf("  %4.1f%%  %s\n", 100.0 * c.stalls[w] / c.runs.size(), describe(in).c_str());
+        }
     }
-    for (const auto& w : warnings) std::printf("\nWARNING: %s\n", w.c_str());
+    for (const auto& w : c.warnings) std::printf("\nWARNING: %s\n", w.c_str());
     std::printf("\ndisturbances: placement %.2f in / %.2f deg (1-sigma), battery %.2f-%.2f, mismatch %.3f,\n"
                 "              slip %.3f-%.3f, gyro drift %.3f deg/s, motor tau %.2f-%.2f s\n",
                 o.d.placeXySigma, o.d.placeDegSigma, o.d.battery.lo, o.d.battery.hi, o.d.mismatchSigma,
                 o.d.slip.lo, o.d.slip.hi, o.d.driftSigma, o.d.tau.lo, o.d.tau.hi);
+}
 
-    // ------------------------------------------------------------ json
-    // Shaped for the report's field view: everything is a pose sample, an
-    // instruction row, or a cloud of points, in the routine's own frame (or
-    // field coordinates when a field start was given).
-    auto pose3 = [&](std::ostringstream& j, const Pose& p, int prec) {
-        j << "[" << num(p.x, prec) << "," << num(p.y, prec) << "," << num(wrapDeg(p.theta), 1) << "]";
-    };
-    auto kindOf = [](const Instr& in) {
-        switch (in.op) {
-            case Instr::Op::Action: return "action";
-            case Instr::Op::Delay: return "delay";
-            case Instr::Op::Wait: case Instr::Op::WaitUntil: case Instr::Op::WaitQuick:
-            case Instr::Op::WaitQuickChain: return "wait";
-            case Instr::Op::DriveSet: case Instr::Op::TurnSet: case Instr::Op::TurnToPoint:
-            case Instr::Op::TurnRelative: case Instr::Op::SwingSet: case Instr::Op::OdomSet:
-            case Instr::Op::DriveRaw: return "motion";
-            default: return "set";
-        }
-    };
-    // Which instruction to flag as "still running at the buzzer".
-    int lateIdx = -1;
-    if (overPc >= static_cast<int>(def.mission.size())) {
-        for (int i = static_cast<int>(def.mission.size()) - 1; i >= 0 && lateIdx < 0; --i)
-            if (std::string(kindOf(def.mission[static_cast<size_t>(i)])) == "motion") lateIdx = i;
-    } else {
-        lateIdx = overPc;
-    }
-    const std::string alliance = def.name.find(".red") != std::string::npos ? "red"
-                               : def.name.find(".blue") != std::string::npos ? "blue" : "";
-    const std::string field = !o.field.empty() ? o.field
-                            : def.name.find("skills") != std::string::npos ? "high-stakes-skills" : "high-stakes";
+// ------------------------------------------------------------------ json
+void pose3(std::ostringstream& j, const Pose& p, int prec) {
+    j << "[" << num(p.x, prec) << "," << num(p.y, prec) << "," << num(wrapDeg(p.theta), 1) << "]";
+}
+
+// The instruction the report flags as still running at the buzzer.
+int lateInstr(const Check& c) {
+    const Mission& m = c.def().mission;
+    if (c.overPc < static_cast<int>(m.size())) return c.overPc;
+    for (int i = static_cast<int>(m.size()) - 1; i >= 0; --i)
+        if (std::strcmp(kindOf(m[static_cast<size_t>(i)]), "motion") == 0) return i;
+    return -1;
+}
+
+// Shaped for the report's field view: everything is a pose sample, an
+// instruction row, or a cloud of points, in the routine's own frame (or
+// field coordinates when a field start was given).
+std::string reportJson(const Check& c) {
+    const Options& o = c.opt;
+    const MissionDef& def = c.def();
+    const Plan& plan = c.plan;
+    const Run& nominal = c.nominal;
+    const std::vector<Run>& runs = c.runs;
     const RobotParams& rp = plan.physical;
+    const std::string alliance = allianceOf(def.name);
+    std::string field = o.field;
+    if (field.empty()) field = isSkills(def.name) ? "high-stakes-skills" : "high-stakes";
 
     std::ostringstream j;
     j << "{\"v\":2,\"name\":\"" << jsonEscape(def.name) << "\",\"source\":\"" << jsonEscape(o.auton) << "\""
       << ",\"runs\":" << o.runs << ",\"seed\":" << o.seed << ",\"budget\":" << num(o.budget, 1)
       << ",\"field\":\"" << field << "\",\"alliance\":" << (alliance.empty() ? "null" : "\"" + alliance + "\"")
       << ",\"robot\":[" << num(rp.robotWidthIn, 1) << "," << num(rp.robotLengthIn, 1) << "]"
-      << ",\"spec\":" << (haveRobot ? robot.json : std::string("null"))
+      << ",\"spec\":" << (c.haveRobot ? c.robot.json : std::string("null"))
       << ",\"start\":";
     pose3(j, def.start, 2);
     j << ",\"field_start\":";
     if (def.hasFieldStart) pose3(j, def.fieldStart, 2); else j << "null";
     j << ",\"warnings\":[";
-    for (size_t i = 0; i < warnings.size(); ++i) j << (i ? "," : "") << "\"" << jsonEscape(warnings[i]) << "\"";
-    j << "],\"stats\":{\"on_time\":" << num(pct, 1) << ",\"p50\":" << num(percentile(motionEnd, 0.5), 2)
-      << ",\"p95\":" << num(percentile(motionEnd, 0.95), 2)
-      << ",\"worst\":" << num(*std::max_element(motionEnd.begin(), motionEnd.end()), 2)
+    for (size_t i = 0; i < c.warnings.size(); ++i) j << (i ? "," : "") << "\"" << jsonEscape(c.warnings[i]) << "\"";
+    j << "],\"stats\":{\"on_time\":" << num(c.onTimePct(), 1) << ",\"p50\":" << num(percentile(c.motionEnd, 0.5), 2)
+      << ",\"p95\":" << num(percentile(c.motionEnd, 0.95), 2)
+      << ",\"worst\":" << num(*std::max_element(c.motionEnd.begin(), c.motionEnd.end()), 2)
       << ",\"nominal\":" << num(nominal.motionEnd, 2) << ",\"total\":" << num(nominal.total, 2)
-      << ",\"end_p95\":" << num(percentile(endErr, 0.95), 2) << ",\"heading_p95\":" << num(percentile(endHeadErr, 0.95), 1)
-      << ",\"late_i\":" << lateIdx << ",\"late_runs\":" << overN << "}";
+      << ",\"end_p95\":" << num(percentile(c.endErr, 0.95), 2)
+      << ",\"heading_p95\":" << num(percentile(c.endHeadErr, 0.95), 1)
+      << ",\"late_i\":" << lateInstr(c) << ",\"late_runs\":" << c.overN << "}";
 
     j << ",\"finish\":[";
-    for (size_t i = 0; i < motionEnd.size(); ++i) j << (i ? "," : "") << num(motionEnd[i], 2);
+    for (size_t i = 0; i < c.motionEnd.size(); ++i) j << (i ? "," : "") << num(c.motionEnd[i], 2);
     j << "],\"dt\":" << num(kNominalSampleTicks / 120.0, 4) << ",\"path\":[";
     for (size_t i = 0; i < nominal.traj.size(); ++i) { if (i) j << ","; pose3(j, nominal.traj[i], 2); }
+    // Only the first kGhostRuns runs kept a trajectory.
     j << "],\"gdt\":" << num(kGhostSampleTicks / 120.0, 4) << ",\"ghosts\":[";
     for (size_t i = 0, n = 0; i < runs.size(); ++i) {
         if (runs[i].traj.empty()) continue;
@@ -712,8 +784,8 @@ int main(int argc, char** argv) {
         for (size_t k = 0; k < runs[i].traj.size(); ++k) { if (k) j << ","; pose3(j, runs[i].traj[k], 1); }
         j << "]";
     }
-    // when each ghost run fired each mechanism call (-1: never), for the
-    // report's game-element sim
+    // When each ghost fired each mechanism call (-1 = never), for the report's
+    // game element sim.
     j << "],\"gact\":[";
     for (size_t i = 0, n = 0; i < runs.size(); ++i) {
         if (runs[i].traj.empty()) continue;
@@ -732,40 +804,44 @@ int main(int argc, char** argv) {
           << "\",\"kind\":\"" << kindOf(in) << "\",\"t\":" << num(nominal.instrStart[i], 2);
         auto w = waitIdx.find(static_cast<int>(i));
         if (w != waitIdx.end()) {
-            int bad = 0;
-            for (const Run& r : runs)
-                if (r.exits[w->second] == ExitReason::Velocity || r.exits[w->second] == ExitReason::Timeout) ++bad;
             j << ",\"exit\":\"" << toString(nominal.exits[w->second]) << "\",\"stall\":"
-              << num(100.0 * bad / runs.size(), 1);
+              << num(100.0 * c.stalls[w->second] / runs.size(), 1);
         }
         auto a = actIdx.find(static_cast<int>(i));
         if (a != actIdx.end()) j << ",\"action\":" << a->second;
         j << "}";
     }
     j << "],\"actions\":[";
-    for (size_t a = 0; a < actionStats.size(); ++a) {
-        const auto& st = actionStats[a];
+    for (size_t a = 0; a < c.actionStats.size(); ++a) {
+        const auto& st = c.actionStats[a];
         j << (a ? "," : "") << "{\"i\":" << st.pc << ",\"t\":" << num(st.nomT, 2) << ",\"at\":[" << num(st.nom.x, 2)
           << "," << num(st.nom.y, 2) << "],\"p95\":" << num(st.p95, 2) << ",\"pts\":[";
+        // 300 points is plenty to see the spread and keeps the page small
         for (size_t i = 0, n = 0; i < runs.size() && n < 300; ++i) {
-            if (!runs[i].actions[a].fired) continue;
-            j << (n++ ? "," : "") << "[" << num(runs[i].actions[a].at.x, 1) << "," << num(runs[i].actions[a].at.y, 1) << "]";
+            const ActionHit& h = runs[i].actions[a];
+            if (!h.fired) continue;
+            j << (n++ ? "," : "") << "[" << num(h.at.x, 1) << "," << num(h.at.y, 1) << "]";
         }
         j << "]}";
     }
     j << "],\"why\":{\"spread\":[";
-    for (size_t i = 0; i < byEnd.size(); ++i)
-        j << (i ? "," : "") << "[\"" << kFactorNames[byEnd[i].factor] << "\"," << num(byEnd[i].endP95, 2) << "]";
+    for (size_t i = 0; i < c.byEnd.size(); ++i)
+        j << (i ? "," : "") << "[\"" << kFactorNames[c.byEnd[i].factor] << "\"," << num(c.byEnd[i].endP95, 2) << "]";
     j << "],\"late\":[";
-    for (size_t i = 0; i < byTime.size(); ++i)
-        j << (i ? "," : "") << "[\"" << kFactorNames[byTime[i].factor] << "\","
-          << num(byTime[i].timeP95 - nominal.motionEnd, 2) << "," << num(byTime[i].onTimePct, 1) << "]";
+    for (size_t i = 0; i < c.byTime.size(); ++i)
+        j << (i ? "," : "") << "[\"" << kFactorNames[c.byTime[i].factor] << "\","
+          << num(c.byTime[i].timeP95 - nominal.motionEnd, 2) << "," << num(c.byTime[i].onTimePct, 1) << "]";
     j << "]},\"disturb\":{\"place_xy\":" << num(o.d.placeXySigma) << ",\"place_deg\":" << num(o.d.placeDegSigma)
       << ",\"battery\":[" << num(o.d.battery.lo) << "," << num(o.d.battery.hi) << "],\"mismatch\":"
       << num(o.d.mismatchSigma) << ",\"slip\":[" << num(o.d.slip.lo) << "," << num(o.d.slip.hi) << "],\"drift\":"
       << num(o.d.driftSigma) << ",\"tau\":[" << num(o.d.tau.lo) << "," << num(o.d.tau.hi) << "]}}";
-    const std::string json = j.str();
+    return j.str();
+}
 
+bool writeOutputs(const Check& c) {
+    const Options& o = c.opt;
+    if (o.jsonPath.empty() && o.htmlPath.empty()) return true;
+    const std::string json = reportJson(c);
     if (!o.jsonPath.empty()) {
         std::ofstream(o.jsonPath) << json << "\n";
         std::printf("\nwrote %s\n", o.jsonPath.c_str());
@@ -774,10 +850,56 @@ int main(int argc, char** argv) {
         std::string html = reportTemplate();
         const std::string marker = "/*REPORT_DATA*/null";
         const size_t at = html.find(marker);
-        if (at == std::string::npos) { std::fprintf(stderr, "report template is missing its data marker\n"); return 1; }
+        if (at == std::string::npos) {
+            std::fprintf(stderr, "report template is missing its data marker\n");
+            return false;
+        }
         html.replace(at, marker.size(), json);
         std::ofstream(o.htmlPath) << html;
         std::printf("%swrote %s\n", o.jsonPath.empty() ? "\n" : "", o.htmlPath.c_str());
     }
-    return 0;
+    return true;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    Check c;
+    c.opt = parseArgs(argc, argv);
+    Options& o = c.opt;
+
+    std::optional<MissionDef> def = loadRoutine(o.auton);
+    if (!def) return 1;
+    if (o.budget < 0) o.budget = isSkills(def->name) ? 60.0 : 15.0;
+    if (o.hasFieldStart) {
+        def->hasFieldStart = true;
+        def->fieldStart = o.fieldStart;
+    }
+    inferFieldStart(*def);
+    c.warnings = pushWarnings(*def);
+
+    c.haveRobot = !o.robotPath.empty();
+    if (c.haveRobot && !loadRobot(o, c.robot)) return 2;
+    for (const auto& [k, v] : o.gainSets) {
+        if (!applyGain(c.gains, k, v)) {
+            std::fprintf(stderr, "unknown gain '%s'\n", k.c_str());
+            return 2;
+        }
+    }
+
+    c.plan = makePlan(*def);
+    if (c.haveRobot) {
+        c.plan.physical = c.robot.physical;
+        c.plan.declared = c.robot.declared;
+        c.plan.encoderScale = c.robot.encoderScale;
+    }
+
+    simulateAll(c);
+    summarize(c);
+    if (o.brief) {
+        printBrief(c);
+        return 0;
+    }
+    printReport(c);
+    return writeOutputs(c) ? 0 : 1;
 }

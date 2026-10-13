@@ -33,7 +33,7 @@ TEST(derivative_opposes_motion) {
 
 TEST(derivative_is_rate_invariant) {
     // The same physical ramp sampled at 100 Hz and 120 Hz must give the same
-    // kD contribution — that is what lets EZ's gains run in a 120 Hz loop.
+    // kD contribution. That's what lets EZ's gains run in a 120 Hz loop.
     Pid a({0.0, 0.0, 1.0, 0.0}), b({0.0, 0.0, 1.0, 0.0});
     a.setTarget(0);
     b.setTarget(0);
@@ -63,8 +63,8 @@ TEST(start_i_gates_integral) {
 }
 
 TEST(ez_quirk_integral_resets_against_previous_measurement) {
-    // EZ compares sgn(error) to sgn(prev_current) — the previous
-    // *measurement* — not sgn(prev_error). Whenever the measurement sits on
+    // EZ compares sgn(error) to sgn(prev_current), the previous
+    // *measurement*, not sgn(prev_error). Whenever the measurement sits on
     // the opposite side of zero from the error, that test is true on every
     // tick and the integral is wiped before it can ever do anything.
     //
@@ -136,8 +136,8 @@ TEST(ez_quirk_big_error_is_dead_when_small_is_set) {
 }
 
 TEST(velocity_exit_fires_when_measurement_stops) {
-    // ez::PID::velocity_zero_main == 0.05, tested on the derivative alone —
-    // there is no "and still far from target" condition.
+    // ez::PID::velocity_zero_main == 0.05, tested on the derivative alone.
+    // There's no "and still far from target" condition.
     Pid p({1, 0, 0, 0}, {100, 1.0, 250, 3.0, 200});
     p.setTarget(100);
     ExitReason r = ExitReason::Running;

@@ -1,4 +1,4 @@
-// plant_node — the fast deterministic backend. Publishes the *same* topics
+// plant_node: the fast deterministic backend. Publishes the *same* topics
 // Gazebo does (/visbot/imu, /visbot/joint_states, /visbot/odom) from the
 // kinematic visbot::DiffDrivePlant, stepped at 1 kHz on its own thread.
 //
@@ -7,8 +7,9 @@
 // without a physics engine in the loop.
 #include <algorithm>
 #include <chrono>
-#include <cstdlib>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -182,7 +183,13 @@ private:
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<PlantNode>());
+    int rc = 0;
+    try {
+        rclcpp::spin(std::make_shared<PlantNode>());
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "plant_node: %s\n", e.what());
+        rc = 1;
+    }
     rclcpp::shutdown();
-    return 0;
+    return rc;
 }

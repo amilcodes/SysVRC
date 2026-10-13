@@ -257,7 +257,7 @@ TEST(heading_correction_holds_a_straight_line) {
 
 TEST(vector_scaling_preserves_ratio) {
     // EZ scales both sides together when the faster one exceeds the cap, so
-    // the L/R ratio — and therefore path curvature — survives saturation.
+    // the L/R ratio (the path's curvature) survives saturation.
     // Clamping each side independently would flatten 300/150 to 127/127 and
     // drive straight when the robot was asking to curve.
     double l = 300, r = 150;
@@ -475,8 +475,8 @@ TEST(runtime_constant_changes_apply) {
 }
 
 TEST(mission_is_deterministic) {
-    // Same seed, same mission, bit-identical trajectory — the property the
-    // golden-trace regression test in the sim workspace relies on.
+    // Same seed, same mission, bit-identical trajectory. The golden trace
+    // test in the sim workspace relies on this.
     Rig a, b;
     a.ctrl.setMission(missions::square());
     b.ctrl.setMission(missions::square());
