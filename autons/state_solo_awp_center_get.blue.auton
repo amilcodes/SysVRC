@@ -1,5 +1,5 @@
 # @name state_solo_awp_center_get.blue
-# imported from autons.cpp:1458 by tools/ez_import.py
+# imported from autons.cpp:1458 by tools/auton_import.py
 # bindings: isBlue=true
 
 odom_xyt_set(0, 0, 146.3)                         @1464  # chassis.odom_xyt_set(0, 0, (180 - 34 + .3) * sgn)

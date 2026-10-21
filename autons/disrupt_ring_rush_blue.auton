@@ -1,5 +1,5 @@
 # @name disrupt_ring_rush_blue
-# imported from autons.cpp:682 by tools/ez_import.py
+# imported from autons.cpp:682 by tools/auton_import.py
 # bindings: none
 
 odom_xyt_set(55, 30, -73.5)       @684  # chassis.odom_xyt_set(55 * sgn, 30, -(71 + 2.5) * sgn)

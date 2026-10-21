@@ -1,11 +1,11 @@
 # Architecture
 
 ```
-  v5/src/autons.cpp ──► tools/ez_import.py ──► autons/*.auton        (one file per routine, @line numbers kept)
-  (EZ-Template, PROS)                                │
+  v5/src/autons.cpp ─► tools/auton_import.py ─► autons/*.auton          (one file per routine, @line numbers kept)
+  (EZ-Template or LemLib)                            │
                                                      │ auton_file.hpp (parse)
                     ┌────────────── core/ (header-only C++17, no deps) ──────────────┐
-                    │  pid  slew  odometry  motion (EZ's PID tasks + instruction list) │
+                    │  pid  slew  odometry  motion (EZ-Template)  lemlib (LemLib)      │
                     │  plant (kinematic drivetrain)  cheesy_drive  constants          │
                     └──────────────┬───────────────────────────────────┬──────────────┘
                                    │                                   │
@@ -44,7 +44,7 @@ does not use a ROS timer; it owns a pthread that:
 2. **locks memory** (`mlockall(MCL_CURRENT|MCL_FUTURE)`) and pre-faults its
    stack so there are no page faults once running;
 3. **sleeps to absolute deadlines** on a fixed grid with
-   `clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME)` — a late tick does not
+   `clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME)`, so a late tick does not
    shift every later tick, and drift cannot accumulate the way it does with
    relative sleeps or `create_wall_timer`;
 4. **re-anchors instead of storming** if it ever wakes ≥ 2 periods late
@@ -59,7 +59,7 @@ Two optional mitigations exist for hosts with coarse timer wakeups
 * `poll_idle`: a nice-19 companion thread pinned to the RT core keeps the
   core out of idle states; the FIFO thread preempts it instantly. This is the
   userspace equivalent of `idle=poll`.
-* `spin_before_deadline_us`: hybrid sleep — return from `nanosleep` early and
+* `spin_before_deadline_us`: hybrid sleep. Return from `nanosleep` early and
   spin on the clock for the final stretch.
 
 [latency.md](latency.md) has the measured effect of each.
@@ -99,7 +99,15 @@ kept on purpose, and the places that don't match.
 
 EZ runs at 100 Hz and its kD is per-tick. `Pid` rescales the derivative and
 integral to a 10 ms tick from whatever real `dt` it is given, so the same
-gains behave identically in the 120 Hz sim loop — `test_pid.cpp` checks this.
+gains behave identically in the 120 Hz sim loop (`test_pid.cpp` checks this).
+
+LemLib routines go through `LemController` (`lemlib.hpp`), a port of LemLib
+v0.5.6's chassis. LemLib's loops assume exactly 10 ms per iteration, so instead
+of rescaling, `LemController` keeps its own 1 ms clock inside each tick and runs
+odometry, the motion task and the auton task on it the way the brain's
+scheduler would. Both controllers implement `AutonController`
+(`controller.hpp`); `makeController()` picks one from the routine's
+`# @lib` line. [lemlib.md](lemlib.md) covers what's ported and where it differs.
 
 ## Timing model vs. the V5
 
@@ -108,8 +116,8 @@ gains behave identically in the 120 Hz sim loop — `test_pid.cpp` checks this.
 | control loop | 10 ms PROS task (`pros::delay(10)`) | 8.33 ms RT thread |
 | IMU | 10 ms nominal | 200 Hz Gazebo IMU / plant |
 | motor encoders | 10 ms poll | 100 Hz joint states |
-| motor response | ~100–150 ms to speed | 120 ms first-order lag (plant) / accel limits (Gazebo diff-drive) |
-| physics | — | 1 kHz ODE, RTF 1.0 |
+| motor response | ~100-150 ms to speed | 120 ms first-order lag (plant) / accel limits (Gazebo diff-drive) |
+| physics | n/a | 1 kHz ODE, RTF 1.0 |
 
 ## Backends
 

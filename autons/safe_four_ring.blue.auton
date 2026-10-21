@@ -1,5 +1,5 @@
 # @name safe_four_ring.blue
-# imported from autons.cpp:1134 by tools/ez_import.py
+# imported from autons.cpp:1134 by tools/auton_import.py
 # bindings: isBlue=true
 
 action("colorFiltrationActive = true")           @1139

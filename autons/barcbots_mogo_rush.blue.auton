@@ -1,5 +1,5 @@
 # @name barcbots_mogo_rush.blue
-# imported from autons.cpp:1703 by tools/ez_import.py
+# imported from autons.cpp:1703 by tools/auton_import.py
 # bindings: isBlue=true
 
 action("LBState = PROPPED")                  @1709

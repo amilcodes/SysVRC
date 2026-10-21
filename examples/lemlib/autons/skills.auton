@@ -1,0 +1,60 @@
+# @name skills
+# imported from autons.cpp:39 by tools/auton_import.py
+# bindings: none
+# @lib lemlib
+# @lemlib drivetrain 11.5 3.25 450 2
+# @lemlib lateral 10 0 3 3 1 100 3 500 20
+# @lemlib angular 2 0 10 3 1 100 3 500 0
+# @lemlib vertical1 pod -0.75 2.125
+# @lemlib horizontal1 pod -3.5 2.125
+# @lemlib imu on
+# @lemlib throttle_curve 3 10 1.019
+# @lemlib steer_curve 3 10 1.019
+# @path ladder_txt
+#   -60, 0, 100
+#   -58.03, 0.231, 100
+#   -56.11, 0.391, 100
+#   -54.24, 0.48, 100
+#   -52.43, 0.498, 100
+#   -50.67, 0.444, 100
+#   -48.96, 0.32, 100
+#   -47.31, 0.124, 100
+#   -45.71, -0.142, 100
+#   -44.16, -0.48, 100
+#   -42.67, -0.889, 100
+#   -41.23, -1.369, 100
+#   -39.84, -1.92, 100
+#   -38.51, -2.542, 100
+#   -37.23, -3.236, 100
+#   -36, -4, 100
+#   -34.83, -4.836, 100
+#   -33.71, -5.742, 100
+#   -32.64, -6.72, 100
+#   -31.63, -7.769, 100
+#   -30.67, -8.889, 100
+#   -29.76, -10.08, 100
+#   -28.91, -11.34, 93.3
+#   -28.11, -12.68, 86.7
+#   -27.36, -14.08, 80
+#   -26.67, -15.56, 73.3
+#   -26.03, -17.1, 66.7
+#   -25.44, -18.72, 60
+#   -24.91, -20.41, 53.3
+#   -24.43, -22.17, 46.7
+#   -24, -24, 0
+# @end
+# 1 line(s) could not be imported; search for NOT IMPORTED
+
+setPose(-60, 0, 270)                 @40
+action("intake.move(127)")           @41
+follow(ladder_txt, 12, 4000, false)  @42  # chassis.follow(ladder_txt, 12, 4000, false)
+waitUntil(30)                        @43
+action("clamp.set_value(true)")      @44
+waitUntilDone()                      @45
+tank(-80, -80)                       @49
+delay(600)                           @48  # while (pros::millis() - ... < 600)
+tank(0, 0)                           @52
+action("clamp.set_value(false)")     @53
+moveToPoint(-48, -40, 1500)          @54
+# NOT IMPORTED: while loop on a runtime condition isn't imported: while (intake.get_torque() < 0.5)  @57
+turnToHeading(180, 1000)             @58

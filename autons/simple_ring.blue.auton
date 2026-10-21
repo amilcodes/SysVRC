@@ -1,5 +1,5 @@
 # @name simple_ring.blue
-# imported from autons.cpp:394 by tools/ez_import.py
+# imported from autons.cpp:394 by tools/auton_import.py
 # bindings: isBlue=true
 
 odom_xyt_set(0, 0, 90)                @396  # chassis.odom_xyt_set(0, 0, 90 * sgn)

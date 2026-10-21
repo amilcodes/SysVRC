@@ -36,8 +36,11 @@ struct ExitConditions {
 };
 
 /// Passed isn't an EZ exit. It's what a pid_wait_until / pid_wait_quick
-/// reports when the robot crossed its target instead of settling on it.
-enum class ExitReason : uint8_t { Running = 0, SmallError, BigError, Velocity, Timeout, NoConstants, Passed };
+/// reports when the robot crossed its target instead of settling on it (and
+/// what a LemLib motion with a minSpeed reports when it exits early).
+/// Cancelled and PathEnd are LemLib only.
+enum class ExitReason : uint8_t { Running = 0, SmallError, BigError, Velocity, Timeout, NoConstants, Passed,
+                                  Cancelled, PathEnd };
 
 inline const char* toString(ExitReason r) {
     switch (r) {
@@ -48,6 +51,8 @@ inline const char* toString(ExitReason r) {
         case ExitReason::Timeout:      return "timeout";
         case ExitReason::NoConstants:  return "no_constants";
         case ExitReason::Passed:       return "passed";
+        case ExitReason::Cancelled:    return "cancelled";
+        case ExitReason::PathEnd:      return "path_end";
     }
     return "?";
 }

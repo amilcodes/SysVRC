@@ -23,6 +23,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <optional>
 #include <random>
 #include <sstream>
@@ -32,6 +33,7 @@
 
 #include "report_template.hpp"
 #include "visbot/auton_file.hpp"
+#include "visbot/controllers.hpp"
 #include "visbot/plant.hpp"
 #include "visbot/robot_spec.hpp"
 
@@ -83,6 +85,7 @@ struct Options {
         "  --html FILE        write a self-contained HTML report\n"
         "  --json FILE        write the raw numbers\n"
         "  --set KEY=VALUE    override a gain, e.g. --set drive.kp=14 --set turn.kd=25\n"
+        "                     (LemLib: lateral.kp, angular.kd, lateral.slew, drivetrain.horizontal_drift ...)\n"
         "  --no-sensitivity   skip the one-factor-at-a-time breakdown\n"
         "  --brief            one summary line (for checking a folder of autons)\n"
         "  --field NAME       field drawn in the report: high-stakes, high-stakes-skills,\n"
@@ -190,6 +193,24 @@ bool applyGain(DriveGains& g, const std::string& key, double v) {
     return false;
 }
 
+/// --set for a LemLib routine: ControllerSettings by name.
+bool applyLemGain(LemConfig& c, const std::string& key, double v) {
+    if (key == "drivetrain.horizontal_drift") { c.horizontalDrift = v; return true; }
+    const size_t dot = key.find('.');
+    if (dot == std::string::npos) return false;
+    const std::string which = key.substr(0, dot), field = key.substr(dot + 1);
+    if (which != "lateral" && which != "angular") return false;
+    LemConfig::Controller& k = which == "lateral" ? c.lateral : c.angular;
+    const std::pair<const char*, double*> fields[] = {
+        {"kp", &k.kP}, {"ki", &k.kI}, {"kd", &k.kD}, {"windup", &k.windupRange},
+        {"small_error", &k.smallError}, {"small_timeout", &k.smallErrorTimeout},
+        {"large_error", &k.largeError}, {"large_timeout", &k.largeErrorTimeout}, {"slew", &k.slew}};
+    for (const auto& [name, ptr] : fields) {
+        if (field == name) { *ptr = v; return true; }
+    }
+    return false;
+}
+
 // ------------------------------------------------------------------ one run
 struct Draw {
     Pose placement;          // offset added to the start pose (x, y in, theta deg)
@@ -240,6 +261,20 @@ Plan makePlan(const MissionDef& def) {
     p.def = def;
     const int n = static_cast<int>(def.mission.size());
     auto at = [&](int i) -> const Instr& { return def.mission[static_cast<size_t>(i)]; };
+    if (def.lib == Library::LemLib) {
+        // LemLib motions run beside the auton, so each motion call is where an
+        // exit gets recorded, and the routine's motion ends when the last one does.
+        auto pushes = [](Instr::Op op) { return op == Instr::Op::LemTank || op == Instr::Op::LemArcade; };
+        for (int i = 0; i < n; ++i) {
+            const Instr& in = at(i);
+            if (in.op == Instr::Op::Action) p.actionPcs.push_back(i);
+            if (in.lemMotion()) p.waitPcs.push_back(i);
+            if (in.lemMotion() || pushes(in.op)) p.lastMotionWaitPc = i;
+        }
+        for (int i = p.lastMotionWaitPc + 1; i < n; ++i)
+            if (pushes(at(i).op)) p.lastMotionWaitPc = i + 1;
+        return p;
+    }
     for (int i = 0; i < n; ++i) {
         const Instr& in = at(i);
         if (in.op == Instr::Op::Action) p.actionPcs.push_back(i);
@@ -270,7 +305,8 @@ Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double
     pp.robotHalfIn = std::max(plan.physical.robotWidthIn, plan.physical.robotLengthIn) / 2;
     pp.encoderScale = plan.encoderScale;
     DiffDrivePlant plant(plan.physical, pp);
-    MotionController ctrl(plan.declared, gains);
+    const std::unique_ptr<AutonController> controller = makeController(plan.def, plan.declared, gains);
+    AutonController& ctrl = *controller;
     // The robot is where the student put it; the code believes odom_xyt_set.
     const Pose& real = plan.def.hasFieldStart ? plan.def.fieldStart : plan.def.start;
     plant.reset({real.x + draw.placement.x, real.y + draw.placement.y, real.theta + draw.placement.theta});
@@ -291,6 +327,8 @@ Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double
     double t = 0;
     int pc = ctrl.status().pc;
     int seenActions = 0;
+    int seenExits = 0;
+    const bool lem = plan.def.lib == Library::LemLib;
     long tick = 0;
     bool motionDone = plan.lastMotionWaitPc < 0;
     if (sampleTicks > 0) r.traj.push_back(plant.truth());
@@ -309,9 +347,15 @@ Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double
             h.t = t;
             ++seenActions;
         }
+        if (lem && st.exitCount != seenExits) {
+            // a LemLib motion finished; it says which one
+            seenExits = st.exitCount;
+            auto it = waitIndex.find(st.exitPc);
+            if (it != waitIndex.end()) r.exits[it->second] = st.lastExit;
+        }
         if (st.pc != pc) {
-            // Blocking instructions we left behind: record how they ended.
-            for (int k = pc; k < st.pc && k >= 0; ++k) {
+            // EZ: blocking instructions we left behind, record how they ended
+            for (int k = pc; !lem && k < st.pc && k >= 0; ++k) {
                 auto it = waitIndex.find(k);
                 if (it != waitIndex.end()) r.exits[it->second] = st.lastExit;
             }
@@ -322,12 +366,12 @@ Run simulate(const Plan& plan, const DriveGains& gains, const Draw& draw, double
             }
             pc = st.pc;
         }
-        if (!motionDone && (st.pc > plan.lastMotionWaitPc || st.done)) {
+        if (!motionDone && ((st.pc > plan.lastMotionWaitPc && !st.busy) || st.done)) {
             motionDone = true;
             r.motionEnd = t;
             r.end = plant.truth();
         }
-        if (r.pcAtBudget < 0 && t >= budget) r.pcAtBudget = st.pc;
+        if (r.pcAtBudget < 0 && t >= budget) r.pcAtBudget = st.activePc >= 0 ? st.activePc : st.pc;
         if (sampleTicks > 0 && ++tick % sampleTicks == 0) r.traj.push_back(plant.truth());
     }
     r.total = t;
@@ -440,7 +484,9 @@ const char* kindOf(const Instr& in) {
         case Instr::Op::DriveSet: case Instr::Op::TurnSet: case Instr::Op::TurnToPoint:
         case Instr::Op::TurnRelative: case Instr::Op::SwingSet: case Instr::Op::OdomSet:
         case Instr::Op::DriveRaw: return "motion";
-        default: return "set";
+        case Instr::Op::LemWaitUntil: case Instr::Op::LemWaitUntilDone: return "wait";
+        case Instr::Op::LemTank: case Instr::Op::LemArcade: return "motion";
+        default: return in.lemMotion() ? "motion" : "set";
     }
 }
 
@@ -466,19 +512,34 @@ void inferFieldStart(MissionDef& def) {
     }
 }
 
-// Timed pushes (drive_set) only mean something if there's a wall to push into.
+// Timed pushes (drive_set, tank) only mean something if there's a wall to push into.
 std::vector<std::string> pushWarnings(const MissionDef& def) {
     if (def.hasFieldStart) return {};
     std::string lines;
     for (const Instr& in : def.mission) {
-        if (in.op != Instr::Op::DriveRaw) continue;
+        if (in.op != Instr::Op::DriveRaw && in.op != Instr::Op::LemTank && in.op != Instr::Op::LemArcade) continue;
         if (!lines.empty()) lines += ", ";
         lines += in.sourceLine ? std::to_string(in.sourceLine) : "?";
     }
     if (lines.empty()) return {};
-    return {"This routine pushes with drive_set (line " + lines + ") but the sim doesn't know where the walls "
-            "are, so the push drives through open field. Everything after it is not meaningful. Pass "
+    const char* how = def.lib == Library::LemLib ? "tank()/arcade()" : "drive_set";
+    return {std::string("This routine pushes with ") + how + " (line " + lines + ") but the sim doesn't know where "
+            "the walls are, so the push drives through open field. Everything after it is not meaningful. Pass "
             "--field-start X,Y,HEADING (or add # @field_start to the file)."};
+}
+
+// LemLib's distTraveled starts at 0, not -1, so waiting before the first
+// motion never returns on the robot either.
+std::vector<std::string> lemWarnings(const MissionDef& def) {
+    if (def.lib != Library::LemLib) return {};
+    for (const Instr& in : def.mission) {
+        if (in.lemMotion()) break;
+        if (in.op == Instr::Op::LemWaitUntil || in.op == Instr::Op::LemWaitUntilDone)
+            return {std::string(in.name()) + "() at line " + std::to_string(in.sourceLine) +
+                    " comes before any motion. LemLib's distTraveled starts at 0, so it waits forever "
+                    "(the rest of the routine never runs)."};
+    }
+    return {};
 }
 
 // Also narrows the motor response range to this robot's. False if robot.json is bad.
@@ -672,8 +733,8 @@ void printReport(const Check& c) {
                     c.robot.name.c_str(), rp.wheelDiameterIn, rp.wheelRpm, rp.maxWheelSpeedInPerSec(),
                     rp.trackWidthIn, rp.robotWidthIn, rp.robotLengthIn, c.robot.motorTauSec);
         if (std::fabs(plan.encoderScale - 1.0) > 0.005)
-            std::printf("        the code tells EZ %.2f in @ %.0f rpm, so odometry reads %.1f%% %s than the robot moves\n",
-                        plan.declared.wheelDiameterIn, plan.declared.wheelRpm, std::fabs(plan.encoderScale - 1.0) * 100,
+            std::printf("        the code tells %s %.2f in @ %.0f rpm, so odometry reads %.1f%% %s than the robot moves\n",
+                        def.lib == Library::LemLib ? "LemLib" : "EZ", plan.declared.wheelDiameterIn, plan.declared.wheelRpm, std::fabs(plan.encoderScale - 1.0) * 100,
                         plan.encoderScale < 1 ? "shorter" : "longer");
     }
     std::printf("\n");
@@ -758,6 +819,7 @@ std::string reportJson(const Check& c) {
       << ",\"field\":\"" << field << "\",\"alliance\":" << (alliance.empty() ? "null" : "\"" + alliance + "\"")
       << ",\"robot\":[" << num(rp.robotWidthIn, 1) << "," << num(rp.robotLengthIn, 1) << "]"
       << ",\"spec\":" << (c.haveRobot ? c.robot.json : std::string("null"))
+      << (def.lib == Library::LemLib ? ",\"lib\":\"lemlib\"" : "")
       << ",\"start\":";
     pose3(j, def.start, 2);
     j << ",\"field_start\":";
@@ -877,18 +939,25 @@ int main(int argc, char** argv) {
     }
     inferFieldStart(*def);
     c.warnings = pushWarnings(*def);
+    for (std::string& w : lemWarnings(*def)) c.warnings.push_back(std::move(w));
+    const bool lem = def->lib == Library::LemLib;
 
     c.haveRobot = !o.robotPath.empty();
     if (c.haveRobot && !loadRobot(o, c.robot)) return 2;
     for (const auto& [k, v] : o.gainSets) {
-        if (!applyGain(c.gains, k, v)) {
+        if (!(lem ? applyLemGain(def->lem, k, v) : applyGain(c.gains, k, v))) {
             std::fprintf(stderr, "unknown gain '%s'\n", k.c_str());
             return 2;
         }
     }
 
     c.plan = makePlan(*def);
-    if (c.haveRobot) {
+    if (lem) {
+        // the drivetrain is what lemlib::Drivetrain says, unless robot.json knows better
+        c.plan.declared = lemDrivetrain(def->lem, c.haveRobot ? c.robot.declared : RobotParams{});
+        c.plan.physical = c.haveRobot ? c.robot.physical : c.plan.declared;
+        if (c.haveRobot) c.plan.encoderScale = c.robot.encoderScale * (def->lem.rpm / c.robot.declared.wheelRpm);
+    } else if (c.haveRobot) {
         c.plan.physical = c.robot.physical;
         c.plan.declared = c.robot.declared;
         c.plan.encoderScale = c.robot.encoderScale;

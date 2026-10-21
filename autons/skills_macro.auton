@@ -1,5 +1,5 @@
 # @name skills_macro
-# imported from skills.cpp:496 by tools/ez_import.py
+# imported from skills.cpp:496 by tools/auton_import.py
 # bindings: none
 
 action("colorFiltrationActive = false")      @497

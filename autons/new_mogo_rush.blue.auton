@@ -1,5 +1,5 @@
 # @name new_mogo_rush.blue
-# imported from autons.cpp:490 by tools/ez_import.py
+# imported from autons.cpp:490 by tools/auton_import.py
 # bindings: isBlue=true
 
 action("colorFiltrationActive = false")      @494

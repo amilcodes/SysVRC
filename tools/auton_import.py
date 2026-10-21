@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Turn EZ-Template autons in autons.cpp into .auton files the sim can run.
+"""Turn EZ-Template or LemLib autons into .auton files the sim can run.
 
-    tools/ez_import.py v5/src/autons.cpp --func worldsMogoRush --bind isBlue=true
-    tools/ez_import.py v5/src/autons.cpp v5/src/skills.cpp --all -o autons/
+    tools/auton_import.py v5/src/autons.cpp --func worldsMogoRush --bind isBlue=true
+    tools/auton_import.py v5/src/autons.cpp v5/src/skills.cpp --all -o autons/
+    tools/auton_import.py src/main.cpp src/autons.cpp --all -o autons/     # LemLib
 
 It reads the C++ directly, so you don't hand-copy routines (and don't make
 copying mistakes). It understands the things autons are actually made of:
@@ -10,6 +11,12 @@ copying mistakes). It understands the things autons are actually made of:
   * EZ calls: pid_drive_set, pid_turn_set, pid_swing_set, pid_odom_set,
     pid_wait / _until / _quick / _quick_chain, pid_speed_max_set,
     pid_drive_chain_constant_set, odom_xyt_set, drive_set
+  * LemLib calls: moveToPoint, moveToPose, turnToHeading, turnToPoint,
+    swingToHeading, swingToPoint, follow (the ASSET file is read from static/),
+    waitUntil, waitUntilDone, cancelMotion, cancelAllMotions, setPose, tank,
+    arcade. Pass the file that builds lemlib::Chassis (usually main.cpp) too:
+    its Drivetrain, ControllerSettings, OdomSensors and drive curves go into
+    the .auton so the sim runs your tuning.
   * pros::delay
   * wrapper functions like our set_drive (see ALIASES below)
   * if/else on things it can evaluate (isBlue, a sgn variable, ...)
@@ -63,6 +70,29 @@ EZ_EXAMPLES = {
     "odom_pure_pursuit_example", "odom_pure_pursuit_wait_until_example", "odom_boomerang_example",
     "odom_boomerang_injected_pure_pursuit_example", "measure_offsets", "default_constants",
 }
+
+# lemlib::Omniwheel (lemlib/chassis/trackingWheel.hpp, v0.5.6)
+OMNIWHEELS = {"NEW_2": 2.125, "NEW_275": 2.75, "OLD_275": 2.75, "NEW_275_HALF": 2.744, "OLD_275_HALF": 2.74,
+              "NEW_325": 3.25, "OLD_325": 3.25, "NEW_325_HALF": 3.246, "OLD_325_HALF": 3.246, "NEW_4": 4.0,
+              "OLD_4": 4.18, "NEW_4_HALF": 3.995, "OLD_4_HALF": 4.175}
+LEM_ENUMS = {f"{ns}Omniwheel::{k}": v for k, v in OMNIWHEELS.items() for ns in ("lemlib::", "")}
+
+# The fields of each LemLib params struct, in declaration order, and their defaults.
+LEM_PARAMS = {
+    "moveToPoint": ["forwards", "maxSpeed", "minSpeed", "earlyExitRange"],
+    "moveToPose": ["forwards", "horizontalDrift", "lead", "maxSpeed", "minSpeed", "earlyExitRange"],
+    "turnToPoint": ["forwards", "direction", "maxSpeed", "minSpeed", "earlyExitRange"],
+    "swingToPoint": ["forwards", "direction", "maxSpeed", "minSpeed", "earlyExitRange"],
+    "turnToHeading": ["direction", "maxSpeed", "minSpeed", "earlyExitRange"],
+    "swingToHeading": ["direction", "maxSpeed", "minSpeed", "earlyExitRange"],
+}
+LEM_DEFAULTS = {"forwards": True, "direction": "AUTO", "maxSpeed": 127.0, "minSpeed": 0.0,
+                "earlyExitRange": 0.0, "lead": 0.6, "horizontalDrift": 0.0}
+# how many arguments come before the params struct
+LEM_FIXED = {"moveToPoint": 3, "moveToPose": 4, "turnToPoint": 3, "turnToHeading": 2,
+             "swingToHeading": 3, "swingToPoint": 4}
+LEM_MOTIONS = set(LEM_FIXED) | {"follow"}
+LEM_IGNORED = {"getPose", "isInMotion", "setBrakeMode", "calibrate"}
 
 UNIT_SUFFIX = re.compile(r"^([0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)_(in|deg|ms|s|cm|mm|ft|rad)$")
 UNIT_SCALE = {"in": 1.0, "deg": 1.0, "ms": 1.0, "s": 1000.0, "cm": 1 / 2.54, "mm": 1 / 25.4,
@@ -152,7 +182,8 @@ class Func:
 
 
 TYPE_WORDS = {"void", "int", "double", "float", "long", "bool", "auto", "short", "unsigned",
-              "const", "char", "std::string", "static", "inline"}
+              "const", "char", "std::string", "static", "inline", "uint32_t", "std::uint32_t", "int32_t",
+              "std::int32_t", "uint64_t", "std::uint64_t", "size_t", "std::size_t"}
 
 
 def find_functions(toks: list[Tok], file: str) -> dict[str, Func]:
@@ -337,12 +368,14 @@ class Result:
     warnings: list[str] = field(default_factory=list)
     start: tuple | None = None
     source: str = ""
+    paths: dict = field(default_factory=dict)   # LemLib: follow() assets used, name -> points
 
 
 class Importer:
-    def __init__(self, funcs: dict[str, Func], consts: dict | None = None):
+    def __init__(self, funcs: dict[str, Func], consts: dict | None = None, lem: LemProject | None = None):
         self.funcs = funcs
         self.consts = consts or {}
+        self.lem = lem
 
     # --- entry ---------------------------------------------------------------
     def run(self, name: str, bindings: dict) -> Result:
@@ -456,7 +489,7 @@ class Importer:
         if ms is None:
             self.warn(line, "while loop on a runtime condition isn't imported", f"while ({join(cond)})")
             return j
-        inner = Importer(self.funcs, self.consts)
+        inner = Importer(self.funcs, self.consts, self.lem)
         inner.res = Result("loop", {})
         inner.saw_motion, inner.depth, inner.turn_behavior = True, self.depth, self.turn_behavior
         inner.block(body, env)
@@ -556,7 +589,10 @@ class Importer:
             if callee == "pros::delay":
                 self.emit(f"delay({fmt(num(args[0]))})", line)
                 return
-            if callee in ALIASES:
+            if self.lem and callee.startswith(self.lem.chassis + "."):
+                self.lem_call(callee[len(self.lem.chassis) + 1:], args, env, line, text, num)
+                return
+            if callee in ALIASES and not self.lem:
                 ez, mapping, defaults = ALIASES[callee]
                 vals = {}
                 for key, idx in mapping.items():
@@ -700,6 +736,108 @@ class Importer:
         self.emit(f"pid_odom_set({fmt(num(pt[0]))}, {fmt(num(pt[1]))}, {fmt(num(parts[2]))}{extra})", line,
                   note(text))
 
+    def lem_call(self, m, args, env, line, text, num):
+        n = len(args)
+
+        def flag(a, what):
+            try:
+                return bool(evaluate(a, env))
+            except Unresolved as e:
+                raise _Skip(f"{what} depends on the robot at runtime ({e})")
+
+        if m in LEM_FIXED:
+            fixed = LEM_FIXED[m]
+            if n < fixed:
+                raise _Skip(f"{m} needs {fixed} arguments")
+            side_at = {"swingToHeading": 1, "swingToPoint": 2}.get(m, -1)
+            vals = []
+            for k in range(fixed):
+                if k == side_at:
+                    side = self.evaluate_word(args[k], env).upper()
+                    if side not in ("LEFT", "RIGHT"):
+                        raise _Skip("lockedSide must be DriveSide::LEFT or RIGHT")
+                    vals.append(side)
+                else:
+                    vals.append(fmt(num(args[k])))
+            rest, params, run_async = args[fixed:], "{}", True
+            if rest and rest[0] and rest[0][0].text == "{":
+                params, rest = self.lem_params(m, rest[0], env, num), rest[1:]
+            if rest:
+                run_async, rest = flag(rest[0], "async"), rest[1:]
+            if rest:
+                raise _Skip(f"{m} has too many arguments")
+            tail = (f", {params}" if params != "{}" or not run_async else "") + ("" if run_async else ", false")
+            self.emit(f"{m}({', '.join(vals)}{tail})", line, note(text))
+        elif m == "follow":
+            if n < 3:
+                raise _Skip("follow needs a path, lookahead and timeout")
+            name = join(args[0])
+            pts = self.lem.path(name)
+            if pts is None:
+                raise _Skip(f"no file in static/ for ASSET({name})")
+            if not pts:
+                raise _Skip(f"ASSET({name}) has no points LemLib can read (expected 'x, y, speed' lines)")
+            self.res.paths[name] = pts
+            fwd = flag(args[3], "forwards") if n > 3 else True
+            run_async = flag(args[4], "async") if n > 4 else True
+            tail = (f", {fmt(fwd)}" if not fwd or not run_async else "") + ("" if run_async else ", false")
+            self.emit(f"follow({name}, {fmt(num(args[1]))}, {fmt(num(args[2]))}{tail})", line, note(text))
+        elif m == "setPose":
+            if n < 3:
+                raise _Skip("setPose with a Pose object isn't supported")
+            x, y, th = num(args[0]), num(args[1]), num(args[2])
+            if n > 3 and flag(args[3], "radians"):
+                th = math.degrees(th)
+            if not self.saw_motion and self.res.start is None:
+                self.res.start = (x, y, th)
+            self.emit(f"setPose({fmt(x)}, {fmt(y)}, {fmt(th)})", line, note(text))
+        elif m == "waitUntil":
+            self.emit(f"waitUntil({fmt(num(args[0]))})", line, note(text))
+        elif m in ("waitUntilDone", "cancelMotion", "cancelAllMotions"):
+            self.emit(f"{m}()", line)
+        elif m in ("tank", "arcade"):
+            if n < 2:
+                raise _Skip(f"{m} needs two speeds")
+            a, b = (int(num(x)) for x in args[:2])   # both take ints
+            raw = flag(args[2], "disableDriveCurve") if n > 2 else False
+            bias = num(args[3]) if m == "arcade" and n > 3 else 0.5
+            tail = (f", {fmt(raw)}" if raw or bias != 0.5 else "") + (f", {fmt(bias)}" if bias != 0.5 else "")
+            self.emit(f"{m}({a}, {b}{tail})", line, note(text))
+        elif m in LEM_IGNORED:
+            return
+        else:
+            raise _Skip(f"{self.lem.chassis}.{m} isn't supported")
+
+    def lem_params(self, m, toks, env, num):
+        """A params struct, designated ({.maxSpeed = 80}) or positional ({false, 80})."""
+        fields, vals = LEM_PARAMS[m], {}
+        for k, item in enumerate(x for x in split_args(toks[1:-1]) if x):
+            if item[0].text == "." and len(item) > 2 and item[2].text == "=":
+                name, expr = item[1].text, item[3:]
+            elif k < len(fields):
+                name, expr = fields[k], item
+            else:
+                raise _Skip(f"too many values in {m}'s params")
+            if name not in fields:
+                raise _Skip(f"{m} has no .{name}")
+            if name == "forwards":
+                try:
+                    vals[name] = bool(evaluate(expr, env))
+                except Unresolved as e:
+                    raise _Skip(f".forwards depends on the robot at runtime ({e})")
+            elif name == "direction":
+                vals[name] = self.evaluate_word(expr, env).upper()
+                if vals[name] not in ("CW_CLOCKWISE", "CCW_COUNTERCLOCKWISE", "AUTO"):
+                    raise _Skip(f"unknown direction {join(expr)}")
+            else:
+                vals[name] = num(expr, f".{name}")
+        parts = []
+        for f in fields:
+            if f in vals and vals[f] != LEM_DEFAULTS[f]:
+                v = vals[f]
+                parts.append(f".{f} = " + (v if f == "direction" else fmt(v)))
+        return "{" + ", ".join(parts) + "}"
+
     def inline(self, callee, args, env, line, text):
         f = self.funcs[callee]
         sub = dict(self.consts)
@@ -764,14 +902,23 @@ def match(toks, i, open_, close):
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
-def render(res: Result, out_name: str) -> str:
+def render(res: Result, out_name: str, lem: LemProject | None = None) -> str:
     lines = [f"# @name {out_name}",
-             f"# imported from {res.source} by tools/ez_import.py",
+             f"# imported from {res.source} by tools/auton_import.py",
              "# bindings: " + (", ".join(f"{k}={fmt(v)}" for k, v in res.bindings.items()) or "none")]
+    if lem:
+        lines.append("# @lib lemlib")
+        lines += [f"# {n}" for n in lem.notes]
+        lines += [f"# @lemlib {s}" for s in lem.settings]
+        for name, pts in sorted(res.paths.items()):
+            lines.append(f"# @path {name}")
+            lines += [f"#   {fmt(x)}, {fmt(y)}, {fmt(v)}" for x, y, v in pts]
+            lines.append("# @end")
     if res.warnings:
         lines.append(f"# {len(res.warnings)} line(s) could not be imported; search for NOT IMPORTED")
     if res.start is None:
-        lines.append("# no odom_xyt_set before the first motion; starting at (0, 0, 0)")
+        start_call = "setPose" if lem else "odom_xyt_set"
+        lines.append(f"# no {start_call} before the first motion; starting at (0, 0, 0)")
     lines.append("")
     width = max((len(l.text) for l in res.lines if l.text), default=0)
     for l in res.lines:
@@ -828,6 +975,146 @@ def file_constants(src: str, toks: list[Tok], env: dict) -> None:
                 pass
 
 
+# ---------------------------------------------------------------------------
+# LemLib: what the project tells lemlib::Chassis
+# ---------------------------------------------------------------------------
+LEM_TYPES = {"lemlib::Drivetrain", "lemlib::ControllerSettings", "lemlib::TrackingWheel", "lemlib::OdomSensors",
+             "lemlib::ExpoDriveCurve", "lemlib::Chassis", "pros::MotorGroup"}
+
+
+@dataclass
+class LemProject:
+    """The lemlib::Chassis a project builds, as `# @lemlib` settings."""
+    chassis: str = "chassis"
+    settings: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)       # what couldn't be read
+    assets: dict[str, str] = field(default_factory=dict)  # ASSET name -> file
+    _paths: dict = field(default_factory=dict)
+
+    def path(self, name: str):
+        """Points of ASSET(name), read the way LemLib's getData() does. None if there's no file."""
+        if name not in self.assets:
+            return None
+        if name not in self._paths:
+            with open(self.assets[name], encoding="utf-8", errors="replace") as f:
+                data = f.read()
+            pts = []
+            for line in data.split("\n"):
+                if line in ("endData", "endData\r"):
+                    break
+                parts = line.split(", ")
+                if len(parts) != 3:
+                    break   # LemLib logs an error and stops reading here too
+                try:
+                    pts.append(tuple(float(p) for p in parts))
+                except ValueError:
+                    break
+            self._paths[name] = pts
+        return self._paths[name]
+
+
+def declarations(toks: list[Tok]) -> dict:
+    """`Type name(args);` or `Type name{args};` for the LemLib/PROS types we care about."""
+    out = {}
+    for i in range(len(toks) - 3):
+        t, name, opener = toks[i], toks[i + 1], toks[i + 2]
+        if t.kind == "id" and t.text in LEM_TYPES and name.kind == "id" and opener.text in ("(", "{"):
+            close = match(toks, i + 2, opener.text, ")" if opener.text == "(" else "}")
+            out[name.text] = (t.text, split_args(toks[i + 3:close]))
+    return out
+
+
+def scan_lemlib(files: list[tuple[str, str, list[Tok]]], consts: dict) -> LemProject | None:
+    """Find the lemlib::Chassis and everything it's built from. None for a non-LemLib project."""
+    decls, lem_calls, ez_calls, mentions = {}, False, False, False
+    for _, _, toks in files:
+        decls.update(declarations(toks))
+        ids = [t.text for t in toks]
+        lem_calls = lem_calls or any(b == "." and c in LEM_MOTIONS for b, c in zip(ids, ids[1:]))
+        ez_calls = ez_calls or any(b == "." and c.startswith("pid_") for b, c in zip(ids, ids[1:]))
+        mentions = mentions or any(i.startswith("lemlib::") for i in ids)
+    chassis = [n for n, (ty, _) in decls.items() if ty == "lemlib::Chassis"]
+    # a lemlib::Chassis, or LemLib-looking calls with no EZ ones (autons.cpp on its own)
+    if not chassis and not mentions and not (lem_calls and not ez_calls):
+        return None
+    proj = LemProject(chassis=chassis[0] if chassis else "chassis")
+
+    def get(name, kind):
+        d = decls.get(name)
+        return d[1] if d and d[0] == kind else None
+
+    def ref(arg):
+        text = join(arg).lstrip("&").strip()
+        return None if text in ("nullptr", "NULL", "0") else text
+
+    def nums(args, what):
+        try:
+            return [float(evaluate(a, consts)) for a in args]
+        except Unresolved as e:
+            proj.notes.append(f"couldn't read {what} ({e}); using LemLib's example value")
+            return None
+
+    if not chassis:
+        proj.notes.append("no lemlib::Chassis in the files given (pass main.cpp too); "
+                          "using LemLib's example settings")
+    else:
+        cargs = decls[chassis[0]][1]
+        names = [ref(a) for a in cargs]
+        names += [None] * (6 - len(names))
+        left = right = None
+        dt = get(names[0], "lemlib::Drivetrain")
+        if dt and len(dt) >= 6:
+            left, right = ref(dt[0]), ref(dt[1])
+            v = nums(dt[2:6], "the Drivetrain")
+            if v:
+                proj.settings.append("drivetrain " + " ".join(fmt(x) for x in v))
+        for key, name in (("lateral", names[1]), ("angular", names[2])):
+            cs = get(name, "lemlib::ControllerSettings")
+            v = nums(cs, f"{key} ControllerSettings") if cs and len(cs) == 9 else None
+            if v:
+                proj.settings.append(f"{key} " + " ".join(fmt(x) for x in v))
+        sensors = get(names[3], "lemlib::OdomSensors")
+        if sensors and len(sensors) == 5:
+            for key, arg in zip(("vertical1", "vertical2", "horizontal1", "horizontal2"), sensors[:4]):
+                tw = get(ref(arg), "lemlib::TrackingWheel") if ref(arg) else None
+                if not tw or len(tw) < 3:
+                    continue
+                src = ref(tw[0])
+                v = nums(tw[1:4], f"TrackingWheel {ref(arg)}")
+                if not v:
+                    continue
+                if src in (left, right) and len(v) == 3:
+                    side = "left_drive" if src == left else "right_drive"
+                    proj.settings.append(f"{key} {side} {fmt(v[1])} {fmt(v[0])} {fmt(v[2])}")
+                else:
+                    proj.settings.append(f"{key} pod {fmt(v[1])} {fmt(v[0])}")
+            proj.settings.append("imu " + ("off" if ref(sensors[4]) is None else "on"))
+        for key, name in (("throttle_curve", names[4]), ("steer_curve", names[5])):
+            curve = get(name, "lemlib::ExpoDriveCurve") if name else None
+            v = nums(curve, key) if curve and len(curve) == 3 else None
+            if v:
+                proj.settings.append(f"{key} " + " ".join(fmt(x) for x in v))
+
+    # ASSET(name) files live in the project's static/ folder, '.' mangled to '_'
+    for path, _, toks in files:
+        for i in range(len(toks) - 3):
+            if toks[i].text == "ASSET" and toks[i + 1].text == "(":
+                name = toks[i + 2].text
+                base = os.path.dirname(os.path.abspath(path))
+                for d in (os.path.join(base, "static"), os.path.join(base, "..", "static"),
+                          os.path.join(base, "..", "..", "static")):
+                    if not os.path.isdir(d):
+                        continue
+                    for f in sorted(os.listdir(d)):
+                        if re.sub(r"[^A-Za-z0-9_]", "_", f) == name:
+                            proj.assets[name] = os.path.join(d, f)
+    return proj
+
+
+LEM_WORDS = {f"{ns}{e}::{v}": v for ns in ("lemlib::", "") for e, vs in
+             (("DriveSide", ("LEFT", "RIGHT")), ("AngularDirection", ("CW_CLOCKWISE", "CCW_COUNTERCLOCKWISE", "AUTO")))
+             for v in vs}
+
 EZ_ENUMS = {
     "ez::LEFT_SWING": "left", "ez::RIGHT_SWING": "right", "LEFT_SWING": "left", "RIGHT_SWING": "right",
     "ez::fwd": "fwd", "ez::rev": "rev", "fwd": "fwd", "rev": "rev",
@@ -836,23 +1123,25 @@ EZ_ENUMS = {
 }
 
 
-def load(paths: list[str]) -> tuple[dict[str, Func], dict]:
-    funcs, consts = {}, dict(EZ_ENUMS)
+def load(paths: list[str]) -> tuple[dict[str, Func], dict, LemProject | None]:
+    funcs, consts, files = {}, dict(EZ_ENUMS) | LEM_ENUMS | LEM_WORDS, []
     for p in paths:
         with open(p, encoding="utf-8") as f:
             src = f.read()
         toks = tokenize(src)
         file_constants(src, toks, consts)
         funcs.update(find_functions(toks, p))
-    return funcs, consts
+        files.append((p, src, toks))
+    return funcs, consts, scan_lemlib(files, consts)
 
 
-def is_auton(f: Func) -> bool:
+def is_auton(f: Func, lem: LemProject | None = None) -> bool:
     """Heuristic: an auton is a void function that sets at least one chassis motion."""
-    motions = {"pid_drive_set", "pid_turn_set", "pid_swing_set", "pid_odom_set"}
+    motions = LEM_MOTIONS if lem else {"pid_drive_set", "pid_turn_set", "pid_swing_set", "pid_odom_set"}
+    chassis = lem.chassis if lem else "chassis"
     ids = [t.text for t in f.body]
-    uses_chassis = any(a == "chassis" and b == "." and c in motions for a, b, c in zip(ids, ids[1:], ids[2:]))
-    return uses_chassis or "set_drive" in ids
+    uses_chassis = any(a == chassis and b == "." and c in motions for a, b, c in zip(ids, ids[1:], ids[2:]))
+    return uses_chassis or (not lem and "set_drive" in ids)
 
 
 def main(argv=None) -> int:
@@ -868,8 +1157,8 @@ def main(argv=None) -> int:
                     help="with --all, also import EZ-Template's bundled example functions")
     a = ap.parse_args(argv)
 
-    funcs, consts = load(a.sources)
-    autons = [n for n, f in funcs.items() if is_auton(f) and n not in ALIASES]
+    funcs, consts, lem = load(a.sources)
+    autons = [n for n, f in funcs.items() if is_auton(f, lem) and n not in ALIASES]
     if a.list:
         for n in autons:
             f = funcs[n]
@@ -887,7 +1176,7 @@ def main(argv=None) -> int:
     if to_dir:
         os.makedirs(a.out, exist_ok=True)
 
-    imp = Importer(funcs, consts)
+    imp = Importer(funcs, consts, lem)
     rows, rc, written = [], 0, {}
     for n in names:
         f = funcs[n]
@@ -906,7 +1195,7 @@ def main(argv=None) -> int:
         if out_name in written:
             ap.error(f"{n} and {written[out_name]} would both be written as {out_name}.auton")
         written[out_name] = n
-        text = render(res, out_name)
+        text = render(res, out_name, lem)
         count = sum(1 for l in res.lines if l.text)
         if not a.out:
             sys.stdout.write(text)

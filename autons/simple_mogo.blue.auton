@@ -1,5 +1,5 @@
 # @name simple_mogo.blue
-# imported from autons.cpp:448 by tools/ez_import.py
+# imported from autons.cpp:448 by tools/auton_import.py
 # bindings: isBlue=true
 
 odom_xyt_set(0, 0, 34)                       @450  # chassis.odom_xyt_set(0, 0, (33 + 1) * sgn)

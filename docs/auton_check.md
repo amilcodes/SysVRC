@@ -36,6 +36,8 @@ build/core/auton_check autons/ring_rush6.blue.auton --brief --set turn.kd=30 --s
 
 Keys are `drive|heading|turn|swing|odom_angular` + `.kp|.ki|.kd|.start_i`, plus `odom_turn_bias`, `odom_look_ahead`, `slew_drive.distance`, `slew_drive.min_speed`. Same `--seed` gives the same report, so the comparison is fair.
 
+LemLib routines (files with `# @lib lemlib`, see [lemlib.md](lemlib.md)) work the same way. Their `--set` keys are `lateral|angular` + `.kp|.ki|.kd|.windup|.small_error|.small_timeout|.large_error|.large_timeout|.slew`, plus `drivetrain.horizontal_drift`. Exits are recorded per motion call, and a motion still running when time runs out is reported even if the auton has moved on to later lines.
+
 ## What gets varied
 
 | disturbance | default | flag | what it stands for |

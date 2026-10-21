@@ -16,10 +16,21 @@ struct EncoderReading {
     double rightDeg = 0.0;
 };
 
+/// How far the chassis itself has moved, which is what an unpowered tracking
+/// wheel measures. Drive encoders don't: they count through slip and wall
+/// pushes. Only the plant knows this; on ROS it's left invalid.
+struct ChassisTravel {
+    double forwardIn = 0.0;
+    double rightIn = 0.0;
+    double turnRad = 0.0;   // clockwise positive
+    bool valid = false;
+};
+
 /// Everything the controller reads per tick.
 struct SensorSnapshot {
     EncoderReading enc;
     double imuHeadingDeg = 0.0;
+    ChassisTravel travel;
 };
 
 class Odometry {

@@ -1,5 +1,5 @@
 # @name ring_walk.blue
-# imported from autons.cpp:1571 by tools/ez_import.py
+# imported from autons.cpp:1571 by tools/auton_import.py
 # bindings: isBlue=true
 
 odom_xyt_set(0, 0, 145)                      @1577  # chassis.odom_xyt_set(0, 0, (180 - 35) * sgn)

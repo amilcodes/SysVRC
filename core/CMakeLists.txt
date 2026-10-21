@@ -24,7 +24,7 @@ install(TARGETS auton_check RUNTIME DESTINATION bin)
 option(VISBOT_CORE_TESTS "Build visbot_core unit tests" ON)
 if(VISBOT_CORE_TESTS)
     enable_testing()
-    foreach(t pid slew cheesy_drive odometry motion auton_file robot_spec)
+    foreach(t pid slew cheesy_drive odometry motion lemlib auton_file robot_spec)
         add_executable(test_${t} tests/test_${t}.cpp)
         target_link_libraries(test_${t} PRIVATE visbot_core)
         target_compile_definitions(test_${t} PRIVATE VISBOT_AUTONS_DIR="${VISBOT_AUTONS_DIR}")
@@ -36,6 +36,8 @@ if(VISBOT_CORE_TESTS)
     # deterministic for a given seed.
     add_test(NAME auton_check.all_routines
              COMMAND sh -c "for f in '${VISBOT_AUTONS_DIR}'/*.auton; do $<TARGET_FILE:auton_check> \"$f\" --runs 40 --brief || exit 1; done")
+    add_test(NAME auton_check.lemlib_example
+             COMMAND sh -c "for f in '${CMAKE_CURRENT_SOURCE_DIR}/../examples/lemlib/autons'/*.auton; do $<TARGET_FILE:auton_check> \"$f\" --runs 40 --brief || exit 1; done")
     add_test(NAME auton_check.html
              COMMAND sh -c "$<TARGET_FILE:auton_check> '${VISBOT_AUTONS_DIR}/simple_ring.blue.auton' --runs 50 --html report.html --json report.json && grep -q '\"runs\":50' report.json && ! grep -q 'REPORT_DATA' report.html")
     add_test(NAME auton_check.deterministic

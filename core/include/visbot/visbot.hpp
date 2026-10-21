@@ -7,5 +7,7 @@
 #include "visbot/cheesy_drive.hpp"
 #include "visbot/odometry.hpp"
 #include "visbot/motion.hpp"
+#include "visbot/lemlib.hpp"
+#include "visbot/controllers.hpp"
 #include "visbot/plant.hpp"
 #include "visbot/missions.hpp"

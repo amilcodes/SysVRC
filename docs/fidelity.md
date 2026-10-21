@@ -123,7 +123,7 @@ CI runs `square` at 6 in.
 
 ## What this buys
 
-`tools/ez_import.py` reads `autons.cpp` directly, so the sim runs the
+`tools/auton_import.py` reads `autons.cpp` directly, so the sim runs the
 routines as written instead of a hand copy. That matters: the one hand copy
 this repo used to have was missing its last third, and got a speed wrong
 because `set_drive`'s third argument is `minSpeed`, not speed. Of the 18

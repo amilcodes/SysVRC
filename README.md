@@ -1,10 +1,10 @@
 # SysVRC
 
-Simulation and test tools for a VEX V5 robot (VRC High Stakes) programmed with EZ-Template.
+Simulation and test tools for VEX V5 robots (VRC High Stakes) programmed with EZ-Template or LemLib.
 
 | Component | Purpose |
 |---|---|
-| `auton_check` | Runs an autonomous routine hundreds of times through a C++ port of EZ-Template v3.2.2 with randomized disturbances and reports what varies and why |
+| `auton_check` | Runs an autonomous routine hundreds of times through a C++ port of its drive library (EZ-Template v3.2.2 or LemLib v0.5.6) with randomized disturbances and reports what varies and why |
 | Robot studio | Builds a simulation model (`robot.json`) from a robot's CAD and source code |
 | ROS 2 sim | Runs the same controller on a 120 Hz real-time thread against a kinematic plant or Gazebo |
 
@@ -19,14 +19,14 @@ Simulation and test tools for a VEX V5 robot (VRC High Stakes) programmed with E
 ## Checking autonomous routines
 
 ```bash
-python3 tools/ez_import.py v5/src/autons.cpp v5/src/skills.cpp --all -o autons
+python3 tools/auton_import.py v5/src/autons.cpp v5/src/skills.cpp --all -o autons
 cmake -S core -B build/core && cmake --build build/core
 build/core/auton_check autons/state_solo_awp.blue.auton --html report.html
 ```
 
 Without CMake: `c++ -std=c++17 -O2 -Icore/include -Icore/tools core/tools/auton_check.cpp -o auton_check`.
 
-The importer converts EZ-Template code, including wrapper functions, `if (isBlue)` branches, timed `drive_set` pushes and same-file helpers, into `.auton` files. Lines that depend on runtime robot state are marked `NOT IMPORTED`. Use `--bind isBlue=false` for the red side.
+The importer converts EZ-Template or LemLib code, including wrapper functions, `if (isBlue)` branches, timed pushes and same-file helpers, into `.auton` files. For LemLib, also pass the file that builds `lemlib::Chassis` (usually `main.cpp`) so the sim uses your drivetrain, PID settings and tracking wheels; see [docs/lemlib.md](docs/lemlib.md) and the project in `examples/lemlib`. Lines that depend on runtime robot state are marked `NOT IMPORTED`. Use `--bind isBlue=false` for the red side.
 
 `auton_check` runs the routine once undisturbed, then 300 times (`--runs`) with random placement error, battery level, left/right mismatch, wheel slip, gyro drift and motor response. It reports the on-time rate, how far each mechanism call lands from its undisturbed position, and which disturbance contributes most. The HTML report plots every run on the field next to the source and marks the instruction still running at the time limit.
 
@@ -78,16 +78,17 @@ cp docs/replay/skills_gazebo.jsonl sim/src/visbot_dash/web/ && (cd sim/src/visbo
 
 | Path | Contents |
 |---|---|
-| `core/` | Header-only C++17 drive control (EZ-Template port), plant model, `auton_check` |
+| `core/` | Header-only C++17 drive control (EZ-Template and LemLib ports), plant model, `auton_check` |
 | `autons/` | Routines as `.auton` files, generated from `v5/src` |
 | `robots/` | `robot.json` models |
-| `tools/` | Importers, `build_web.py`, robot studio |
+| `tools/` | `auton_import.py`, `path_import.py`, `build_web.py`, robot studio |
 | `web/` | Report page, field drawing, game element sim |
 | `sim/` | ROS 2 packages: control loop, Gazebo model, dashboard |
-| `v5/` | PROS competition code |
+| `v5/` | PROS competition code (EZ-Template) |
+| `examples/` | A LemLib project and its imported routines |
 | `docs/` | Design notes, EZ-Template fidelity, latency |
 
-* `core/` keeps EZ-Template's quirks on purpose; they are listed in [docs/fidelity.md](docs/fidelity.md). Gains in `constants.hpp` mirror `default_constants()`.
+* Both ports keep their library's quirks on purpose; they are listed in [docs/fidelity.md](docs/fidelity.md) (EZ-Template) and [docs/lemlib.md](docs/lemlib.md). EZ gains in `constants.hpp` mirror `default_constants()`; LemLib settings come from the routine file.
 * `autons/` and `core/tools/report_template.hpp` are generated and committed. CI fails if either is stale; regenerate with the importer and `python3 tools/build_web.py`.
 * `v5/` is missing `include/` and `project.pros`, so `pros make` does not work from a fresh clone.
 
@@ -120,7 +121,7 @@ Wake latency of the 120 Hz loop (`rt_bench`) in Docker Desktop on macOS. The VM'
 
 | Problem | Fix |
 |---|---|
-| "pushes with drive_set" warning | The start pose is (0, 0), so wall positions are unknown. Drag the robot to its start in the report and rerun with the `--field-start` it shows. |
+| "pushes with drive_set" (or `tank()`) warning | The start pose is (0, 0), so wall positions are unknown. Drag the robot to its start in the report and rerun with the `--field-start` it shows. |
 | `NOT IMPORTED` in a routine | The line depends on runtime state; results after it are unreliable. |
 | `pthread_setschedparam ... failed` | Run through `compose.yaml`, which grants `SYS_NICE` and the rtprio/memlock limits. |
 | Millisecond latency on macOS | Expected in the VM. Use `cpu:=3 poll_idle:=true spin_us:=500`. |

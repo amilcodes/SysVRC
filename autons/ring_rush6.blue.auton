@@ -1,5 +1,5 @@
 # @name ring_rush6.blue
-# imported from autons.cpp:944 by tools/ez_import.py
+# imported from autons.cpp:944 by tools/auton_import.py
 # bindings: isBlue=true
 
 action("LBState = REST")                                  @950

@@ -1,5 +1,5 @@
 # @name safe_ring_side.blue
-# imported from autons.cpp:748 by tools/ez_import.py
+# imported from autons.cpp:748 by tools/auton_import.py
 # bindings: isBlue=true
 
 action("intakeUnstuckActivated = true")  @750

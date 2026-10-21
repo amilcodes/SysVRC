@@ -18,7 +18,7 @@ jobs:
       - run: cmake -S core -B build/core -DCMAKE_BUILD_TYPE=Release && cmake --build build/core -j
       - run: ctest --test-dir build/core --output-on-failure
       - name: every imported routine, one line each
-        run: for f in autons/*.auton; do build/core/auton_check "$f" --runs 100 --brief; done
+        run: for f in autons/*.auton examples/lemlib/autons/*.auton; do build/core/auton_check "$f" --runs 100 --brief; done
       - name: our robot's spec drives the sim
         run: build/core/auton_check autons/skills.auton --robot robots/ours/robot.json --runs 50 --brief
       - name: path.jerryio import, end to end (needs auton_check)

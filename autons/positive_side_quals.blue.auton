@@ -1,5 +1,5 @@
 # @name positive_side_quals.blue
-# imported from autons.cpp:1322 by tools/ez_import.py
+# imported from autons.cpp:1322 by tools/auton_import.py
 # bindings: isBlue=true
 
 odom_xyt_set(0, 0, -45)                                          @1324  # chassis.odom_xyt_set(0, 0, -45 * sgn)

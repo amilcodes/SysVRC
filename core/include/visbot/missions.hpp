@@ -5,17 +5,20 @@
 #include <string>
 #include <vector>
 
-#include "visbot/motion.hpp"
+#include "visbot/geometry.hpp"
+#include "visbot/instr.hpp"
 
 namespace visbot {
 
 struct MissionDef {
     std::string name;
-    Pose start;             // what the code believes (odom_xyt_set)
+    Pose start;             // what the code believes (odom_xyt_set / setPose)
     Mission mission;
     /// Where the robot really starts on the field. Optional, but walls need it.
     bool hasFieldStart = false;
     Pose fieldStart;
+    Library lib = Library::EzTemplate;
+    LemConfig lem;          // LemLib routines only
 };
 
 namespace missions {

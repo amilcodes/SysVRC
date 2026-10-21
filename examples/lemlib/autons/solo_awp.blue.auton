@@ -1,0 +1,26 @@
+# @name solo_awp.blue
+# imported from autons.cpp:12 by tools/auton_import.py
+# bindings: isBlue=true
+# @lib lemlib
+# @lemlib drivetrain 11.5 3.25 450 2
+# @lemlib lateral 10 0 3 3 1 100 3 500 20
+# @lemlib angular 2 0 10 3 1 100 3 500 0
+# @lemlib vertical1 pod -0.75 2.125
+# @lemlib horizontal1 pod -3.5 2.125
+# @lemlib imu on
+# @lemlib throttle_curve 3 10 1.019
+# @lemlib steer_curve 3 10 1.019
+
+setPose(55, -12, 90)                                                    @14  # chassis.setPose(-55 * s, -12, isBlue ? 90 : 270)
+moveToPoint(24, -24, 2000, {.forwards = false, .maxSpeed = 90})         @17  # chassis.moveToPoint(-24 * s, -24, 2000, {.forwards = false, .maxSpeed = 90})
+waitUntilDone()                                                         @18
+action("clamp.set_value(true)")                                         @19
+action("intake.move(127)")                                              @20
+turnToPoint(24, -48, 1000)                                              @23  # chassis.turnToPoint(-24 * s, -48, 1000)
+moveToPoint(24, -46, 1500)                                              @24  # chassis.moveToPoint(-24 * s, -46, 1500)
+swingToHeading(90, RIGHT, 800, {.minSpeed = 40, .earlyExitRange = 10})  @25  # chassis.swingToHeading(isBlue ? 90 : 270, isBlue ? lemlib::DriveSide::RIGHT : lemlib::DriveSide::LEFT, 800, {.minSpeed = 40, .earlyExitRange = 10})
+moveToPose(48, -10, 0, 2500, {.lead = 0.4})                             @27  # chassis.moveToPose(-48 * s, -10, 0, 2500, {.lead = 0.4})
+turnToHeading(225, 800, {.direction = CW_CLOCKWISE})                    @30  # chassis.turnToHeading(isBlue ? 225 : 135, 800, {.direction = isBlue ? AngularDirection::CW_CLOCKWISE : AngularDirection::CCW_COUNTERCLOCKWISE})
+moveToPoint(18, -18, 1500, {.maxSpeed = 60})                            @32  # chassis.moveToPoint(-18 * s, -18, 1500, {.maxSpeed = 60})
+waitUntilDone()                                                         @33
+action("intake.move(0)")                                                @34

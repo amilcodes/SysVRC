@@ -44,6 +44,7 @@ public:
         vL_ = vR_ = 0.0;
         encL_ = encR_ = 0.0;
         drift_ = 0.0;
+        travel_ = {0.0, 0.0, 0.0, true};
     }
 
     /// Advance by dt with the given command (V5 units, -127..127).
@@ -64,6 +65,7 @@ public:
         const double mid = deg2rad(truth_.theta) + dTheta / 2.0;
         double chord = d;
         if (std::fabs(dTheta) > 1e-9) chord = 2.0 * (d / dTheta) * std::sin(dTheta / 2.0);
+        const double x0 = truth_.x, y0 = truth_.y;
         truth_.x += chord * std::sin(mid);
         truth_.y += chord * std::cos(mid);
         truth_.theta += rad2deg(dTheta);   // continuous, like the V5 inertial
@@ -76,6 +78,11 @@ public:
             truth_.x = clamp(truth_.x, -lim, lim);
             truth_.y = clamp(truth_.y, -lim, lim);
         }
+        // what a tracking wheel would see: the move that actually happened
+        const double dx = truth_.x - x0, dy = truth_.y - y0;
+        travel_.forwardIn += dx * std::sin(mid) + dy * std::cos(mid);
+        travel_.rightIn += dx * std::cos(mid) - dy * std::sin(mid);
+        travel_.turnRad += dTheta;
 
         encL_ += dl / rp_.inchesPerWheelDegree() * pp_.encoderScale;
         encR_ += dr / rp_.inchesPerWheelDegree() * pp_.encoderScale;
@@ -93,6 +100,7 @@ public:
         s.enc.leftDeg = quantise(encL_);
         s.enc.rightDeg = quantise(encR_);
         s.imuHeadingDeg = truth_.theta + drift_ + gaussian() * pp_.imuNoiseStdDeg;
+        s.travel = travel_;
         return s;
     }
 
@@ -114,6 +122,7 @@ private:
     RobotParams rp_;
     PlantParams pp_;
     Pose truth_{};
+    ChassisTravel travel_{0.0, 0.0, 0.0, true};
     double vL_ = 0.0, vR_ = 0.0, encL_ = 0.0, encR_ = 0.0, drift_ = 0.0;
     bool wallContact_ = false;
     uint32_t rng_;
